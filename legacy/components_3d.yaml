@@ -1,0 +1,248 @@
+- duration: 5
+  id: 182
+  page_type: clock
+- page_type: components
+  duration: 5
+  variables:
+    t_in: "{{ states('sensor.netatmo_smart_thermostat_current_temperature') }}"
+    t_out: "{{ states('sensor.outdoor_module_temperature') }}"
+    h_in: "{{ states('sensor.wellbeing_electrolux_air_purifier_humidity') }}"
+    h_out: "{{ state_attr('weather.openweathermap_current','humidity') }}"
+    aqi: "{{ states('sensor.zagreb_1_croatia_air_quality_index') }}"
+    wm: "{{ states('input_select.washing_machine_state_machine') }}"
+    td: "{{ states('input_select.dryer_state_machine') }}"
+    pr: "{{ states('sensor.p1s_01p00c462500605_print_status') | lower }}"
+    pr_left: "{{ states('sensor.p1s_01p00c462500605_remaining_time') }}"
+    pr_pct: "{{ states('sensor.p1s_01p00c462500605_print_progress') }}"
+  components:
+    # ---------- canvas + bevelled 3D tiles ----------
+    - type: rectangle
+      position: [0, 0]
+      size: [64, 64]
+      color: [2, 3, 7]
+    - type: templatable
+      template: >-
+        {% set ns = namespace(out=[]) %}
+        {% for t in [[0,0,31,23],[33,0,31,23],[0,25,64,14],[0,41,20,23],[22,41,20,23],[44,41,20,23]] %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[t[0], t[1]],'size':[t[2], t[3]],'color':[20, 25, 46]},
+            {'type':'rectangle','position':[t[0], t[1]],'size':[t[2], 1],'color':[62, 74, 120]},
+            {'type':'rectangle','position':[t[0], t[1]],'size':[1, t[3]],'color':[44, 53, 90]},
+            {'type':'rectangle','position':[t[0], t[1] + t[3] - 1],'size':[t[2], 1],'color':[8, 10, 20]},
+            {'type':'rectangle','position':[t[0] + t[2] - 1, t[1] + 1],'size':[1, t[3] - 1],'color':[8, 10, 20]}
+          ] %}
+        {% endfor %}
+        {{ ns.out }}
+
+    # ---------- indoor / outdoor icons ----------
+    - type: image
+      position: [2, 2]
+      image_data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAY0lEQVR42mNgQAL/91X8Z0ADTCiSG3Yx7LOR+4+hACbJwMDA4GgkgqKICVkSBpAVMTIwMDD8f7gexdgb+/cz6KTMRnUDAwMDQ35YFopJf/98Z2RiIAAYYQxmFk4ML/79850RAPOXJ50whEfkAAAAAElFTkSuQmCC"
+    - type: image
+      position: [35, 2]
+      image_data: "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAeElEQVR42mNggIJp/xf8N7qU8t/oUsp/BiTABJNEFpTscYPzmWCScy4fQShwk4MrYkKXZGBgYHi+6xEDAwMDAzML539GBgYGBmR7YZKvKg6jaGJgZuH8v6XC7T8zCyccMzAwMLDAFPz9853x3I3n/2FsBlwAphMGAGMsMvjqUm6BAAAAAElFTkSuQmCC"
+
+    # ---------- temperatures (gradient digits) + humidity ----------
+    - type: templatable
+      template: >-
+        {% set ns = namespace(out=[]) %}
+        {% set G = {'0': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAQElEQVR42mMQkdT7z4AGRCT1/qOIM7Nw/mdm4fyPrABFElmAmYXzPxMDHjC0JBmwhRAsQJhgCmACsFASFFVlAADYmxNZdY+lagAAAABJRU5ErkJggg==', 6], '1': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAUklEQVR42sXPsQ2AQAhG4cdtYIIFA9iy/xzXOsAVXuIIWGmwwNbXke9vEDUPgDm6ANw3QMsAcB47D87RJa9zTc0jr18IsKxbjVV/YJmah3z9eQHeCBiNdsqSeAAAAABJRU5ErkJggg==', 6], '2': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAX0lEQVR42n2NsQ2AMAwELyRNSiRTeABa7z8HLQNQgMQIpiJCVsiV/697RM0JiJq3XNQ8l+px0IpoyKX6BDAvKz0mBhSA69hSVAJ0w/eqRNX3f/g5LH8RNU+i5ve5dwcPio8XxPAqEM8AAAAASUVORK5CYII=', 6], '3': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAARElEQVR42mNkwAJEJPX+wxnMLJz/mVk4/6MrYISrYmBgePP8EiOMzczC+Z+JAQ/AK8mITRBu/2BzEBOyg5AdJiiqygAA28wdK7RXW9MAAAAASUVORK5CYII=', 6], '4': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAVUlEQVR42pWPsQoAMQhDpXVxFHTwA7r6/3+XG45C69GDvikaxIQsElSwSGz7zoJVWyRaNVbaFOrjbP5eXptHLBJkkegsqFU6y1tFfXzSqo+LQPPFnB/zBhMr+/r7qgAAAABJRU5ErkJggg==', 6], '5': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAXUlEQVR42n2OsQ3AIAzAHMjCiAQDB7Dy/x19okt/SCcQQm28RbESCx+UNgxAAKImO4VcO7oPJwEHdyleEKUNi5rsjCptmCwLeO5rXYqazA/a7f/nG7MhnFEzLNfOC/5PGT3ytiTyAAAAAElFTkSuQmCC', 6], '6': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAV0lEQVR42p2QOw5AIQgEV6GhNMHCA9hy/9vxKhL8xOJtOWyyE6DDHFt0mOswLwGIZSm1PsE7yKl45HksN3hIEotnqaVALJ4Bsfh/Idw+FPs1CgFCqvWJD8tGFljmziyOAAAAAElFTkSuQmCC', 6], '7': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAVUlEQVR42mNgwAFEJPX+M4hI6v1nZuGEY5gkMwvnfxYGBgYGQVFVuI43zy/B2UzIRr15fokRpgtDEhkIiqoiJNF14dQJcwMTsi50gNNOKkgihxKyJADy1xgVQ4nyzQAAAABJRU5ErkJggg==', 6], '8': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAS0lEQVR42mMQkdT7z4AGRCT1/sPFRST1/jOzcP5HV8DAwMDAwMzC+R/dBGYWzv9MDHgAXkkGbA5iZuFEuGEwOYgJ2UHIrhQUVWUAANsjHlGLpod1AAAAAElFTkSuQmCC', 6], '9': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAMCAYAAACulacQAAAAWUlEQVR42mMQkdT7z4AGRCT1/mMTR1EA5zCzcP5nZuH8j8xnQlYtKKqKopuJgRzAzML5nwmfq5hgLkN3EIqdgqKqpDmIhYGBgeHN80uM6I7BaidMQlBUlQEAFc0X8T80y4wAAAAASUVORK5CYII=', 6], '.': ['iVBORw0KGgoAAAANSUhEUgAAAAMAAAAMCAYAAACnfgdqAAAANUlEQVR42mMUkdT7zwAFTAxIgGIOHCBbwcDMwvmfSURS7z8zC+d/BgYGBhYGBgYGQVFVTAMAnp4GjeaOXo8AAAAASUVORK5CYII=', 2], '°': ['iVBORw0KGgoAAAANSUhEUgAAAAQAAAAMCAYAAABFohwTAAAAO0lEQVR42mNgQAIiknr/GRgYGBiYWTj/I9NwwMzC+Z9JRFLvPzML53+YLAsDAwODoKgqXBUTAxqgjwAAO6EIX2uUpvUAAAAASUVORK5CYII=', 3], '-': ['iVBORw0KGgoAAAANSUhEUgAAAAUAAAAMCAYAAACqYHctAAAAN0lEQVR42mMUkdT7z4AGmBiwAAoFMQA2ixmYWTj/M4lI6v1nZuGEYwYGBgYWBgYGBkFRVWo6CQA/dwir/B6aTAAAAABJRU5ErkJggg==', 4]} %}
+        {% set grad = [0.65, 0.45, 0.25, 0.1, 0, 0, -0.1, -0.2, -0.3, -0.4, -0.5] %}
+        {% set tiles = [
+          {'t': t_in,  'h': h_in,  'cx': 15, 'x1': 30, 'lo': [18, 20], 'hi': [24, 26], 'judge': true},
+          {'t': t_out, 'h': h_out, 'cx': 48, 'x1': 63, 'lo': [0, 10],  'hi': [25, 30], 'judge': false}
+        ] %}
+        {% for tl in tiles %}
+          {% set y = 10 %}
+          {% if tl.t | is_number %}
+            {% set v = tl.t | float %}
+            {% set num = ('%d' | format((v | abs) | round(0) | int)) if (v < 0 or v >= 100) else ('%.1f' | format(v)) %}
+            {% set txt = ('-' if v < 0 else '') ~ num ~ '°' %}
+            {% set ns.w = 0 %}
+            {% for c in txt %}{% set ns.w = ns.w + G[c][1] + 1 %}{% endfor %}
+            {% set x0 = tl.cx - (ns.w // 2) %}
+            {% set c = [70, 150, 255] if v < tl.lo[0] else
+                       [30, 225, 255] if v < tl.lo[1] else
+                       [70, 255, 110] if v <= tl.hi[0] else
+                       [255, 200, 30] if v <= tl.hi[1] else [255, 70, 55] %}
+            {% for f in grad %}
+              {% set rc = [((c[0] + (255 - c[0]) * f) if f > 0 else (c[0] * (1 + f))) | int,
+                           ((c[1] + (255 - c[1]) * f) if f > 0 else (c[1] * (1 + f))) | int,
+                           ((c[2] + (255 - c[2]) * f) if f > 0 else (c[2] * (1 + f))) | int] %}
+              {% set ns.out = ns.out + [{'type':'rectangle','position':[x0, y + loop.index0],'size':[ns.w - 1, 1],'color':rc}] %}
+            {% endfor %}
+            {% set ns.x = x0 %}
+            {% for ch in txt %}
+              {% set ns.out = ns.out + [{'type':'image','image_data':G[ch][0],'position':[ns.x, y]}] %}
+              {% set ns.x = ns.x + G[ch][1] + 1 %}
+            {% endfor %}
+          {% else %}
+            {% for dx in [-8, 1] %}
+              {% set ns.out = ns.out + [
+                {'type':'rectangle','position':[tl.cx + dx + 1, y + 6],'size':[6, 2],'color':[3, 4, 9]},
+                {'type':'rectangle','position':[tl.cx + dx, y + 5],'size':[6, 2],'color':[90, 96, 125]}
+              ] %}
+            {% endfor %}
+          {% endif %}
+          {% if tl.h | is_number %}
+            {% set h = tl.h | float | round(0) | int %}
+            {% set hc = [90, 200, 255] if (not tl.judge or 35 <= h <= 65) else [255, 200, 30] %}
+            {% set ns.out = ns.out + [
+              {'type':'image','image_data':'iVBORw0KGgoAAAANSUhEUgAAAAYAAAAGCAYAAADgzO9IAAAAU0lEQVR42mNggAK3Lf//MyABJgYGBoZnXyGCyJJM6Crl8u78h+tI2A8RvLHrLgMDAwMDMwvnf0ZkVQwMDAxPp+kyMDAwMDDCBJhZOOGSf/98ZwQAXVIb3YKuHdUAAAAASUVORK5CYII=','position':[tl.x1 - 11 - (('%d' | format(h)) | length) * 4, 2]},
+              {'type':'text','content': h ~ '%','position':[tl.x1, 4],'color':[3, 4, 9],'align':'right'},
+              {'type':'text','content': h ~ '%','position':[tl.x1 - 1, 3],'color':hc,'align':'right'}
+            ] %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.out }}
+
+    # ---------- air quality: 3D face + gradient value + bevelled scale ----------
+    - type: templatable
+      template: >-
+        {% set ns = namespace(out=[]) %}
+        {% set G = {'0': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAP0lEQVR42mMQkdT7z4AGRCT1/qOIM7Nw/mdm4fyPrABFElmAmYXzPxMDHoBXkgGbg2D2M8EUwARgjhIUVWUAAJXkE0+OGOQIAAAAAElFTkSuQmCC', 6], '1': ['iVBORw0KGgoAAAANSUhEUgAAAAUAAAAHCAYAAADAp4fuAAAAPUlEQVR42mMQkdT7zwAFIpJ6/0Uk9f4zMiABZhbO/4KiqgxMyCphgIkBC8AqiAFEJPX+M4hI6v1nZuFEwQCUOA26vsMxOgAAAABJRU5ErkJggg==', 4], '2': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAWUlEQVR42mMQkdT7z4AGRCT1/sPFRST1/jOzcP5HVwCXQDeBmYXzPwsDAwPD3z/fGd88v4QiwcDAwMCIrhrGFhRVZWBBlvz75zuy4v+MIpJ6/9+/vs2ADQAA35UcrBkwaR4AAAAASUVORK5CYII=', 6], '3': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAO0lEQVR42mNkwAJEJPX+wxnMLJz/mVk4/6MrYMSmE64Qr064+QwMDG+eX2JE1o3XWCZkY5GNFxRVZQAAZgcYE9zmAfUAAAAASUVORK5CYII=', 6], '4': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAS0lEQVR42mMQkdT7z4AGRCT1/qOIM7Nw/kdmi0jq/WdCl0AGTDCGoKgqA9FARFLvP4OIpN5/ZhbO/+h2MrNw/mdBM/L/+9e34dYAACd1FCNm1ITXAAAAAElFTkSuQmCC', 6], '5': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAASklEQVR42nWMMQ7AIAwDjyZLRiQYeAAr//+dO7RUatR6s8924UNtLAEUAPNQLtQ+L/i3pI0l81BevwqPuWUeIocbmIeOfL3va5+cSjYU8+7dTpsAAAAASUVORK5CYII=', 6], '6': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAASklEQVR42m2OsQ0AIQwDDUmTEikUGYA2+29nqkjwj8uTfTI8kvjEI+mRbAVE7SqNudDwyM8majzXV0HUeAJRI16HytJLUaDUYy5sfjMWAcX1Vw0AAAAASUVORK5CYII=', 6], '7': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAV0lEQVR42nWOMQqAMBAExyRNyoNckQdcm/+/w0/Y2KdRYiEnRHRgq9mFhR9KbYNS24gpP3EZUx4BQNQQNc6jLy4Agjf3bZ2EqN3ShSNqTMsvgj97HwK4AIaxFfrwHJ24AAAAAElFTkSuQmCC', 6], '8': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAPUlEQVR42mMQkdT7z4AGRCT1/sPFRST1/jOzcP5HV8CATSczCydCMU6dMJXoJjCzcOI3lgnZWGS7BEVVGQBCMRrRBKvtGQAAAABJRU5ErkJggg==', 6], '9': ['iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAT0lEQVR42nWMvQ2AYAhEn0JDaYIFA9iy/xwuYeMOWH0mol5yzf08PLJo8si6c48sUas+AEDUqhNErfjCjnL+wwIowHns0wsJPJ7DAMu6cQGpvRirSVwQIQAAAABJRU5ErkJggg==', 6]} %}
+        {% set ok = aqi | is_number %}
+        {% set a = (aqi | float(0)) | round(0) | int %}
+        {% set segs = [
+          [0,   50,  [0, 235, 70]],
+          [50,  100, [255, 225, 0]],
+          [100, 150, [255, 130, 0]],
+          [150, 200, [255, 40, 40]],
+          [200, 300, [190, 70, 255]]
+        ] %}
+        {% set ns.col = [120, 126, 150] %}
+        {% for s in segs %}
+          {% set c = s[2] %}
+          {% set active = ok and (a >= s[0]) and (a < s[1] or loop.last) %}
+          {% if active %}{% set ns.col = c %}{% endif %}
+          {% set k = 1.0 if active else 0.28 %}
+          {% set x = 2 + (s[0] // 5) %}{% set w = (s[1] - s[0]) // 5 %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[x, 35],'size':[w, 1],'color':[((c[0] + (255 - c[0]) * 0.5) * k) | int, ((c[1] + (255 - c[1]) * 0.5) * k) | int, ((c[2] + (255 - c[2]) * 0.5) * k) | int]},
+            {'type':'rectangle','position':[x, 36],'size':[w, 1],'color':[(c[0] * k) | int, (c[1] * k) | int, (c[2] * k) | int]},
+            {'type':'rectangle','position':[x, 37],'size':[w, 1],'color':[(c[0] * k * 0.5) | int, (c[1] * k * 0.5) | int, (c[2] * k * 0.5) | int]}
+          ] %}
+        {% endfor %}
+        {% if ok %}
+          {% set c = ns.col %}
+          {% set face = 'iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAMUlEQVR42mMQkdT7z4AFwMX///+PVQEccHEJ/EemiQPoqmF8RmwKvn37wIjqKiyuBQAfPBHyagP0JwAAAABJRU5ErkJggg==' if a < 50 else 'iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAMUlEQVR42mMQkdT7z4AFwMX///+PVQEccHEJ/EemKQOM6MYyMDAwfPv2gRHVVVhcCwB9Pw+sBqaW+gAAAABJRU5ErkJggg==' if a < 101 else 'iVBORw0KGgoAAAANSUhEUgAAAAcAAAAHCAYAAADEUlfTAAAAM0lEQVR42mMQkdT7z4AFwMX///+PVQEccHEJ/EemCQJGdJ0MDAwM3759YGTAJoHCx+daAFFrEfKAq+fjAAAAAElFTkSuQmCC' %}
+          {% set txt = '%d' | format(a) %}
+          {% set ns.w = 0 %}
+          {% for ch in txt %}{% set ns.w = ns.w + G[ch][1] + 1 %}{% endfor %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[3, 28],'size':[7, 7],'color':[3, 4, 9]},
+            {'type':'rectangle','position':[2, 27],'size':[7, 7],'color':c},
+            {'type':'rectangle','position':[2, 33],'size':[7, 1],'color':[(c[0] * 0.6) | int, (c[1] * 0.6) | int, (c[2] * 0.6) | int]},
+            {'type':'rectangle','position':[8, 27],'size':[1, 7],'color':[(c[0] * 0.75) | int, (c[1] * 0.75) | int, (c[2] * 0.75) | int]},
+            {'type':'image','image_data':face,'position':[2, 27]}
+          ] %}
+          {% for f in [0.6, 0.3, 0.05, -0.15, -0.3, -0.45] %}
+            {% set rc = [((c[0] + (255 - c[0]) * f) if f > 0 else (c[0] * (1 + f))) | int,
+                         ((c[1] + (255 - c[1]) * f) if f > 0 else (c[1] * (1 + f))) | int,
+                         ((c[2] + (255 - c[2]) * f) if f > 0 else (c[2] * (1 + f))) | int] %}
+            {% set ns.out = ns.out + [{'type':'rectangle','position':[12, 27 + loop.index0],'size':[ns.w - 1, 1],'color':rc}] %}
+          {% endfor %}
+          {% set ns.x = 12 %}
+          {% for ch in txt %}
+            {% set ns.out = ns.out + [{'type':'image','image_data':G[ch][0],'position':[ns.x, 27]}] %}
+            {% set ns.x = ns.x + G[ch][1] + 1 %}
+          {% endfor %}
+          {% set mx = 2 + ([a, 299] | min) // 5 %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[mx - 1, 34],'size':[3, 4],'color':[3, 4, 9]},
+            {'type':'rectangle','position':[mx, 33],'size':[1, 5],'color':[255, 255, 255]}
+          ] %}
+        {% else %}
+          {% for x in [3, 12, 19] %}
+            {% set ns.out = ns.out + [
+              {'type':'rectangle','position':[x + 1, 31],'size':[5, 2],'color':[3, 4, 9]},
+              {'type':'rectangle','position':[x, 30],'size':[5, 2],'color':[90, 96, 125]}
+            ] %}
+          {% endfor %}
+        {% endif %}
+        {% set ns.out = ns.out + [
+          {'type':'text','content':'AQI','position':[62, 29],'color':[3, 4, 9],'align':'right'},
+          {'type':'text','content':'AQI','position':[61, 28],'color':[150, 158, 190],'align':'right'}
+        ] %}
+        {{ ns.out }}
+
+    # ---------- washer + dryer ----------
+    - type: templatable
+      template: >-
+        {% set ns = namespace(out=[]) %}
+        {% set apps = [
+          {'s': wm, 'x': 0,  'on': 'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAABBElEQVR42pWSsUrEQBCGv41p7O8hfAMrO7GySGcRjuyBWByIjYURbKx8gkshmA33AsFCcPGwtrFJncY0FjapLFTG4siCbjDxh4HZ4f9n958dBSAiwkgopRRAICJSNy1ZbslyS920LnZIqZuWeJYSz9b54uZeAIK/upvmrLe+EW6KEhHJcst/cHwUEQLs7W67YrEsPWIyjVxuH57wnlosSy7PE7LbFxcAWs+9ZuHvm9IKDq8vHOEDYGXReo4xC1/YoeyxO+nxGQwNwiT99WCIrIsBYTe5yV3M/knF23OFSdZn4Ic/z2MyjXhcWbZerwA4PaBXBKAAt0ZjP98JuzUaK/76fFffbQ5lvWKXgP0AAAAASUVORK5CYII=', 'off': 'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAA0klEQVR42mNkYGBgaO9b+p+BSFBZFM3IwMDAwNjet/T/3Tu3GR49vM/AwMDAICevCFd048oZBg0dE4Yzp44wMDAwMJiY2TA8enifYdfWhYxM+EzX0DHBKs7MwvmfhYGBAW4bOhsGxMSlMeRY0J137PAeDI1Wti4YBqM4Fabp/fs3cIzLMCZsmpABLs1MDGQC+mtkQQ65Y4f3MAgKijAIicrAFbx7/QQjZDFshEm+e/0EjrFpYmBgYGBkYGBgcPOOJzqt7t25CqERloyI1fz3z3dGAEnkVpd3EmMJAAAAAElFTkSuQmCC', 'run': [60, 170, 255]},
+          {'s': td, 'x': 22, 'on': 'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAA9UlEQVR42p2SMUvDUBDHfy/N4m6HfgQ/gOgggiCZ0yWLlKSLYMHNpY6dndPNtnTsktWguCr9DJkyZHFJFhflHMo7aNJK9A8Hx3G/u3v3zgCIiNBSxhgD4IiIZHnJ1XCsluUlWV7C6kh9G48fnwTAtZXOzi8a1bPTt51dO+6BGBGR6SzlL7q99jcdvcsTDS6WSSMxHPjqp8/vbI1qocl9SNHvamx6/EAUjZjP461iTr1T0e/S8w7VbtZ3AETRaDfYkO//+k6Hf2o/mCTtQLu5oPIo0g+1oPIAGstx62t/fUk12aoOARhAz6jt5ytoz6gt/P31aX4Aub5gR+L0CDwAAAAASUVORK5CYII=', 'off': 'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAA+ElEQVR42pWSv2rCUBSHv2vv0vFCaAchTbcMjsFBdBMXH8HBd+jmE7j5Dh1c3B0UnRQHydghYIuaWRBx6GJJp3ub5BpID5zh/Pl+53A4AmA4GieUtMFbTwCI4WicfH3uCLdrUwzqTQCijxC/FgAQbtcE9Sbxcc98+i6kbn56rlrqGsrbg3xMJEB83GcK+VgLp/MSwH15NYnNamFBjVbbEq2kGzR0Pp+MF4lV7kGu5xsvgmVeyfV84kOUia+XU/HE/5o1MT5EuJ6fiZVyisFGq81mtUApJ7OqhtKXtVbVRaUc4/cgAAHQ6fZL/+pyNvkD9RuVhX9u3+IXfOFcWEwJQPQAAAAASUVORK5CYII=', 'run': [255, 140, 30]}
+        ] %}
+        {% for ap in apps %}
+          {% set st = {
+            'job_ongoing':       ['RUN',  ap.run],
+            'job_completed':     ['DONE', [70, 255, 110]],
+            'paused':            ['PAUS', [255, 200, 30]],
+            'detached_overload': ['ERR',  [255, 70, 55]],
+            'unplugged':         ['OFF',  [80, 85, 110]],
+            'idle':              ['IDLE', [115, 122, 150]]
+          }.get(ap.s, ['--', [80, 85, 110]]) %}
+          {% set c = st[1] %}
+          {% if ap.s in ['job_ongoing', 'job_completed', 'paused', 'detached_overload'] %}
+            {% set ns.out = ns.out + [
+              {'type':'rectangle','position':[ap.x, 41],'size':[20, 1],'color':[((c[0] + 255) / 2) | int, ((c[1] + 255) / 2) | int, ((c[2] + 255) / 2) | int]},
+              {'type':'rectangle','position':[ap.x, 42],'size':[20, 1],'color':[(c[0] * 0.55) | int, (c[1] * 0.55) | int, (c[2] * 0.55) | int]}
+            ] %}
+          {% endif %}
+          {% set ns.out = ns.out + [
+            {'type':'image','image_data': ap.on if ap.s == 'job_ongoing' else ap.off,'position':[ap.x + 3, 43]},
+            {'type':'text','content':st[0],'position':[ap.x + 11, 58],'color':[3, 4, 9],'align':'center'},
+            {'type':'text','content':st[0],'position':[ap.x + 10, 57],'color':c,'align':'center'}
+          ] %}
+        {% endfor %}
+        {{ ns.out }}
+
+    # ---------- 3D printer (Bambu P1S) — top strip doubles as progress bar ----------
+    - type: templatable
+      template: >-
+        {% set ns = namespace(out=[]) %}
+        {% set map = {
+          'printing':'run','running':'run','busy':'run',
+          'paused':'pause','pausing':'pause','pause':'pause',
+          'preparing':'prep','prepare':'prep','slicing':'prep','init':'prep','initializing':'prep',
+          'finished':'done','finish':'done','completed':'done','done':'done',
+          'error':'err','failed':'err',
+          'idle':'idle','offline':'off'
+        } %}
+        {% set k = map.get(pr, 'off') %}
+        {% set mins = pr_left | int(0) %}
+        {% set left = (mins // 60) ~ 'h' ~ ('%02d' | format(mins % 60)) if mins >= 60 else mins ~ 'm' %}
+        {% set st = {
+          'run':   [left,   [70, 255, 110],  [25, 120, 70]],
+          'pause': ['PAUS', [255, 200, 30],  [120, 90, 0]],
+          'prep':  ['PREP', [30, 225, 255],  [10, 90, 110]],
+          'done':  ['DONE', [70, 255, 110],  [25, 120, 70]],
+          'err':   ['ERR',  [255, 70, 55],   [150, 25, 25]],
+          'idle':  ['IDLE', [115, 122, 150], [34, 38, 56]],
+          'off':   ['OFF',  [80, 85, 110],   [24, 27, 40]]
+        }[k] %}
+        {% set c = st[1] %}
+        {% set light = [((c[0] + 255) / 2) | int, ((c[1] + 255) / 2) | int, ((c[2] + 255) / 2) | int] %}
+        {% set dark = [(c[0] * 0.55) | int, (c[1] * 0.55) | int, (c[2] * 0.55) | int] %}
+        {% if k in ['run', 'pause'] and pr_pct | is_number %}
+          {% set p = [[pr_pct | float, 0] | max, 100] | min %}
+          {% set w = (p * 20 / 100) | round(0) | int %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[44, 41],'size':[20, 2],'color':[(c[0] * 0.18) | int, (c[1] * 0.18) | int, (c[2] * 0.18) | int]},
+            {'type':'rectangle','position':[44, 41],'size':[w, 1],'color':light},
+            {'type':'rectangle','position':[44, 42],'size':[w, 1],'color':dark}
+          ] %}
+        {% elif k in ['run', 'pause', 'done', 'err'] %}
+          {% set ns.out = ns.out + [
+            {'type':'rectangle','position':[44, 41],'size':[20, 1],'color':light},
+            {'type':'rectangle','position':[44, 42],'size':[20, 1],'color':dark}
+          ] %}
+        {% endif %}
+        {% set ns.out = ns.out + [
+          {'type':'rectangle','position':[49, 46],'size':[9, 7],'color':st[2]},
+          {'type':'image','image_data':'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAAzklEQVR42mNkYGBgqG2a8Z+BSNBcl8HIwMDAwFjbNOM/KxsbsfoY7t65w7BwThsjC4xDvMYbDMwsnP9ZYAJLFvQT1BSTUAhnsyBL/P3znZGBgYGhuKIH7ufejhJGJCVwcSZsJsMUT+ipZWBm4cQacEy4nAXTDHMF0RrxacKrMTQq739oVN5/kjQia8ClGR6qJmaO8FB79AA1Xs2tvP5j1Xj3zg0GVjYOoiIfBhgZGBgYbByC/jMwMDAcP7IdpyZLG08GrGqYWTj/44ozbGoACoxG1w5ZWJcAAAAASUVORK5CYII=' if k in ['idle', 'off'] else 'iVBORw0KGgoAAAANSUhEUgAAAA4AAAAOCAYAAAAfSC3RAAAA0ElEQVR42mNkYGBgePjs638GIoG8FDcjA0wTKWDpmsP/GRgYGFgYGBgYlq09QqyFDPv37WdgZuH8zwITiItwI6hp0YpdcDYLssTfP98ZGRgYGD58+AX3s4AAGyOSErg4EzaTBQTYGPm/1TEIi/AzMLNwYg04JlzOYpTqYER2BdEa8WnCqxEW/CRpRNaASzM8VH0DE+ChFhiWhaIoIDTzP1aN+/ftZxARlSQq8uGBx8DAwJCS1fSfgYGBYf6sdpyaEtMqGbCqYWbh/I8rzrCpAQCWFnWaL5hR3gAAAABJRU5ErkJggg==','position':[47, 43]},
+          {'type':'text','content':st[0],'position':[55, 58],'color':[3, 4, 9],'align':'center'},
+          {'type':'text','content':st[0],'position':[54, 57],'color':c,'align':'center'}
+        ] %}
+        {{ ns.out }}

@@ -1,0 +1,129 @@
+# =============================================================================
+# Divoom Pixoo 64 – animated dashboard + weather (Home Assistant package)
+# https://github.com/dadiggi/divoom-pixoo-ha
+#
+# Requires: /config/pixoo/pixoo_render.py  and packages enabled in configuration.yaml:
+#   homeassistant:
+#     packages: !include_dir_named packages
+#
+# >>> Change entity IDs in the "payload" template below to match your setup. <<<
+# =============================================================================
+
+input_select:
+  pixoo_theme:
+    name: Pixoo theme
+    icon: mdi:palette
+    options:
+      - auto              # neon, Halloween (Oct 24-31), Christmas (Dec 1 - Jan 6)
+      - neon
+      - retro_platformer
+      - crimson_desert
+      - christmas
+      - halloween
+      - synthwave
+  pixoo_colors:
+    name: Pixoo colour boost
+    icon: mdi:brightness-6
+    options:
+      - vivid (recommended)
+      - extra vivid
+      - soft
+      - "off"
+
+shell_command:
+  pixoo_render: "python3 /config/pixoo/pixoo_render.py {{ payload }}"
+
+automation:
+  - id: pixoo_render_animated_pages
+    alias: Pixoo – render animated pages
+    description: Renders /config/www/pixoo/*.gif for the Pixoo 64
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: time_pattern
+        minutes: /1
+      - trigger: state
+        entity_id:
+          - input_select.pixoo_theme
+          - input_select.pixoo_colors
+          - sensor.netatmo_smart_thermostat_current_temperature
+          - sensor.outdoor_module_temperature
+          - sensor.wellbeing_electrolux_air_purifier_humidity
+          - sensor.zagreb_1_croatia_air_quality_index
+          - input_select.washing_machine_state_machine
+          - input_select.dryer_state_machine
+          - sensor.p1s_01p00c462500605_print_status
+          - sensor.p1s_01p00c462500605_print_progress
+          - weather.meteo
+          - sun.sun
+    actions:
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.meteo
+        data:
+          type: daily
+        response_variable: fc
+        continue_on_error: true
+      - variables:
+          payload: >-
+            {% set W = 'weather.meteo' %}
+            {% set wm_e = states.input_select.washing_machine_state_machine %}
+            {% set td_e = states.input_select.dryer_state_machine %}
+            {% set pr_e = states.sensor.p1s_01p00c462500605_print_status %}
+            {% set ns = namespace(days=[]) %}
+            {% set items = fc[W].forecast if (fc is defined and fc and W in fc) else [] %}
+            {% for f in items[:5] %}
+              {% set dt = as_local(as_datetime(f.datetime)) %}
+              {% set ns.days = ns.days + [{
+                'd': dt.strftime('%a')[:2] | upper, 'wd': dt.isoweekday(),
+                'date': dt.date() | string, 'c': f.get('condition'),
+                'hi': f.get('temperature'), 'lo': f.get('templow')
+              }] %}
+            {% endfor %}
+            {% set rise = state_attr('sun.sun', 'next_rising') %}
+            {% set sett = state_attr('sun.sun', 'next_setting') %}
+            {{ {
+              'theme':  states('input_select.pixoo_theme'),
+              'vivid':  states('input_select.pixoo_colors'),
+              't_in':   states('sensor.netatmo_smart_thermostat_current_temperature'),
+              't_out':  states('sensor.outdoor_module_temperature'),
+              'h_in':   states('sensor.wellbeing_electrolux_air_purifier_humidity'),
+              'h_out':  state_attr('weather.openweathermap_current', 'humidity'),
+              'aqi':    states('sensor.zagreb_1_croatia_air_quality_index'),
+              'wm':     wm_e.state if wm_e else 'unknown',
+              'td':     td_e.state if td_e else 'unknown',
+              'pr':     pr_e.state if pr_e else 'unknown',
+              'wm_age': ((now() - wm_e.last_changed).total_seconds() | int) if wm_e else none,
+              'td_age': ((now() - td_e.last_changed).total_seconds() | int) if td_e else none,
+              'pr_age': ((now() - pr_e.last_changed).total_seconds() | int) if pr_e else none,
+              'pr_left': states('sensor.p1s_01p00c462500605_remaining_time'),
+              'pr_pct': states('sensor.p1s_01p00c462500605_print_progress'),
+              'time':   now().strftime('%H:%M'),
+              'date':   now().day ~ '.' ~ now().month,
+              'dow':    now().strftime('%a') | upper,
+              'today':  now().date() | string,
+              'sun':    states('sun.sun'),
+              'sunrise': as_local(as_datetime(rise)).strftime('%H:%M') if rise else none,
+              'sunset':  as_local(as_datetime(sett)).strftime('%H:%M') if sett else none,
+              'wind_speed':   state_attr(W, 'wind_speed'),
+              'wind_unit':    state_attr(W, 'wind_speed_unit'),
+              'wind_bearing': state_attr(W, 'wind_bearing'),
+              'weather': {'condition': states(W), 'temperature': state_attr(W, 'temperature')},
+              'forecast': ns.days
+            } | to_json | base64_encode }}
+      - action: shell_command.pixoo_render
+        data:
+          payload: "{{ payload }}"
+        response_variable: result
+        continue_on_error: true
+      - if:
+          - condition: template
+            value_template: "{{ result is not defined or result.returncode != 0 }}"
+        then:
+          - action: system_log.write
+            data:
+              level: warning
+              logger: pixoo_render
+              message: "Pixoo render failed: {{ result.stderr if result is defined else 'no result' }}"

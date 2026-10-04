@@ -1,0 +1,83 @@
+# Divoom Pixoo 64 – animated Home Assistant dashboard
+
+Animated, themeable dashboard and weather pages for the **Divoom Pixoo 64**, rendered by Home Assistant
+and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pixoo-homeassistant).
+
+![Neon theme](docs/previews/theme_neon.gif)
+
+## Features
+
+- **Two animated pages**: a home dashboard and a weather page with a 4-day forecast.
+- **Dashboard:** indoor and outdoor temperature and humidity, an air-quality face and scale, and live status for the washing machine, dryer and Bambu Lab P1S printer.
+  - The washer drum tumbles, the dryer swirls, and the printer toolhead moves while printing.
+  - Print progress shows in the tile's top strip.
+- **Smart idle row:** when all appliances are idle, the bottom row rotates on every visit between "last used" ages (🕒 2H / 2D), sunrise/sunset, and a wind card with a compass.
+
+  ![Idle cards](docs/previews/idle_cards.gif)
+- **Weather page:** animated icons (sun, moon and stars at night, rain, snow, lightning, fog, wind), the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
+- **Themes:** `neon`, `retro_platformer`, `crimson_desert`, `christmas`, `halloween`, `synthwave`, and `auto`. `auto` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6.
+- **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
+- **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
+
+| | |
+|---|---|
+| ![](docs/previews/theme_retro_platformer.gif) | ![](docs/previews/theme_crimson_desert.gif) |
+| ![](docs/previews/theme_christmas.gif) | ![](docs/previews/theme_halloween.gif) |
+| ![](docs/previews/theme_synthwave.gif) | |
+
+## How it works
+
+A Home Assistant automation collects sensor states and the weather forecast. Every minute, and on every change, it passes them to `pixoo_render.py` through `shell_command`.
+
+The script draws 16-frame GIFs into `/config/www/pixoo/`, which HA serves at `/local/pixoo/`. The integration's `gif` pages then tell the Pixoo to download and loop them on the device, so animation is smooth and nothing streams per frame.
+
+The script needs only Pillow, which already ships with Home Assistant. One render takes about 0.5 s.
+
+## Installation
+
+1. **Copy the files:**
+   - `pixoo/pixoo_render.py` → `/config/pixoo/pixoo_render.py`
+   - `homeassistant/packages/pixoo_animated.yaml` → `/config/packages/pixoo_animated.yaml`
+2. **Enable packages** in `configuration.yaml`, if you haven't already:
+   ```yaml
+   homeassistant:
+     packages: !include_dir_named packages
+   ```
+3. **Set your entity IDs** in `pixoo_animated.yaml`. They appear in the trigger list and in the `payload` template.
+4. **Restart Home Assistant.** Then open `http://<HA-IP>:8123/local/pixoo/weather.gif` in a browser to check the output.
+5. **Configure the Pixoo pages.** Paste `homeassistant/pixoo_pages.yaml` into *Settings → Devices & services → Divoom Pixoo 64 → Configure → List of pages in YAML* and replace `192.168.50.X` with your HA IP.
+
+## Settings
+
+| Helper | What it does |
+|---|---|
+| `input_select.pixoo_theme` | Theme for all pages. Changes apply within a second. |
+| `input_select.pixoo_colors` | `vivid` (default), `extra vivid`, `soft` or `off`. Pick what looks best at your brightness. |
+
+You can also change these constants at the top of `pixoo_render.py`:
+
+- `FRAMES` / `FRAME_MS`: animation length and speed.
+- `NIGHT_DIM`: global dimming.
+
+### Expected data
+
+| Key | Source |
+|---|---|
+| `wm`, `td` | Washer and dryer state machines (Appliance Notifications blueprint states: `idle`, `job_ongoing`, `job_completed`, `paused`, `detached_overload`, `unplugged`) |
+| `pr`, `pr_left`, `pr_pct` | Bambu Lab integration: print status, remaining minutes, progress % |
+| `*_age` | Seconds since the entity's `last_changed`. This resets when HA restarts. |
+| `forecast` | `weather.get_forecasts` (daily) |
+
+## Troubleshooting
+
+- **Page stays black:** check the GIF URL in a browser from another device. The Pixoo needs plain `http` on your LAN. If it still doesn't work, try removing the `?v=` cache-buster.
+- **Colours look too dark or too bright:** switch `Pixoo colour boost` to `soft` or `extra vivid`.
+- **Nothing updates:** look in *Settings → System → Logs* for `pixoo_render` warnings.
+
+## Legacy
+
+`legacy/` contains the earlier static `components` page versions (flat and 3D). They don't need a script, but they also can't animate or use themes.
+
+## Credits & license
+
+MIT licensed. Bitmap font tables are adapted from [gickowtf/pixoo-homeassistant](https://github.com/gickowtf/pixoo-homeassistant) (MIT). All artwork is original pixel art drawn in code. The themes are original designs and aren't affiliated with any game or brand.
