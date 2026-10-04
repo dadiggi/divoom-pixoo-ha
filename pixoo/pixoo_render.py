@@ -146,6 +146,16 @@ PICO_FIX = {
     "[": "##./#../#../#../##.", "]": ".##/..#/..#/..#/.##", "|": ".#./.#./.#./.#./.#.",
 }
 FONTS["pico"].update(PICO_FIX)
+# Open-topped 4s so they can't be mistaken for 9s; small 9 gets a closed bottom.
+FONTS["big"]["4"] = "...##./..###./.#.##./#..##./#..##./#..##./######/...##./...##./...##./...##."
+FONTS["gicko"]["4"] = "...##./..###./.#.##./#..##./######/...##."
+FONTS["pico"]["9"] = "###/#.#/###/..#/###"
+# Croatian letters: base glyph + accent pixels drawn ABOVE the glyph (dx, dy with dy < 0)
+ACCENTS = {
+    "Č": ("C", [(0, -2), (2, -2), (1, -1)]), "Ć": ("C", [(2, -2), (1, -1)]),
+    "Š": ("S", [(0, -2), (2, -2), (1, -1)]), "Ž": ("Z", [(0, -2), (2, -2), (1, -1)]),
+    "Đ": ("D", []),
+}
 for _c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
     FONTS["pico"][_c.lower()] = FONTS["pico"][_c]
 for _fname, _font in FONTS.items():
@@ -160,6 +170,7 @@ class Canvas:
         self.img = Image.new("RGB", (64, 64), BG)
         self.p = self.img.load()
         self.tiles = []
+        self.umbrella = False
 
     def is_bg(self, x, y):
         """True where nothing but background/tile fill is drawn (used for 'behind content' decor)."""
@@ -219,6 +230,9 @@ class Canvas:
     @staticmethod
     def glyph(font, ch):
         """Glyph lookup that never fails: falls back to upper-case, then the pico font, then blank."""
+        ch = str(ch)
+        if ch.upper() in ACCENTS:
+            ch = ACCENTS[ch.upper()][0]
         g = _GLYPHS[font]
         got = g.get(ch) or g.get(str(ch).upper())
         if got is None and font != "pico":
@@ -243,6 +257,11 @@ class Canvas:
             cx = x
             for ch in s:
                 gw, gh, m = self.glyph(font, ch)
+                for (ax, ay) in ACCENTS.get(ch.upper(), (None, []))[1]:
+                    if is_shadow:
+                        self.px(cx + ax + 1, y + ay + 1, SHADOW)
+                    else:
+                        self.px(cx + ax, y + ay, color)
                 for j in range(gh):
                     for i in range(gw):
                         if m[j][i]:
@@ -442,6 +461,76 @@ def aqi_gauge(cv, a, f):
         cv.px(mx - 1, Y - 1, SHADOW); cv.px(mx + 1, Y - 1, SHADOW)
         cv.rect(mx - 1, Y + 3, 3, 1, glow)               # pointer under the gauge
         cv.px(mx, Y + 3, (255, 255, 255))
+
+
+# ----------------------------------------------------------------------------
+# Umbrella forecast (rest of today)
+# ----------------------------------------------------------------------------
+RAIN_PROB = 40          # % chance per hour that counts as "rain expected"
+RAIN_MM = 0.2           # or this much precipitation in an hour
+RAINY = {"rainy", "pouring", "lightning-rainy", "snowy-rainy", "hail"}
+
+
+def rain_outlook(d):
+    """None = no hourly data; otherwise (rain_expected, max_probability)."""
+    if not d.get("hourly_ok"):
+        return None
+    rain, best = False, 0
+    hourly = d.get("hourly")
+    for h in (hourly if isinstance(hourly, list) else []):
+        if not isinstance(h, dict):
+            continue
+        p, mm, c = num(h.get("p")), num(h.get("mm")), str(h.get("c") or "").lower()
+        best = max(best, p or 0)
+        if (p is not None and p >= RAIN_PROB) or (mm is not None and mm >= RAIN_MM) or c in RAINY:
+            rain = True
+    return rain, best
+
+
+UMBRELLA_OPEN = ["....lll....", "..llalall..", ".aaabababa.", "dadddhdddad", "d.d..h..d.d",
+                 ".....h.....", "...hhh....."]
+UMBRELLA_SHUT = ["..a..", ".aba.", ".aba.", ".aba.", "..a..", "..h..", ".hh.."]
+
+
+def draw_umbrella(cv, d, f):
+    """In the free space of the AQI tile: open umbrella with dripping rain when rain is expected
+    later today, a closed umbrella next to a twinkling sun when it isn't."""
+    out = rain_outlook(d)
+    if out is None:
+        return False
+    rain, best = out
+    x, y = 36, 26
+    if rain:
+        sway = round(math.sin(2 * math.pi * f / FRAMES))
+        pal = {"l": (150, 205, 255), "a": (60, 150, 255), "b": (110, 185, 255), "d": (30, 95, 210),
+               "h": (210, 210, 225)}
+        for j, r in enumerate(UMBRELLA_OPEN):
+            dx = sway if j < 4 else 0
+            for i, ch in enumerate(r):
+                if ch != ".":
+                    cv.px(x + i + dx + 1, y + j + 1, SHADOW)
+            for i, ch in enumerate(r):
+                if ch != ".":
+                    cv.px(x + i + dx, y + j, pal[ch])
+        drops = 3 if best >= 70 else 2
+        for n, (dxp, ph) in enumerate([(-1, 0), (11, 5), (5, 10)][:drops]):
+            yy = y + 3 + ((f + ph) % 8) // 2 if dxp != 5 else y - 1 + ((f + ph) % 4)
+            if dxp == 5:     # drop landing on the canopy, splashing
+                if (f + ph) % 4 == 3:
+                    cv.px(x + 4 + sway, y, (200, 235, 255)); cv.px(x + 6 + sway, y, (200, 235, 255))
+                continue
+            if yy <= y + 6:
+                cv.px(x + dxp + sway, yy, (120, 200, 255))
+    else:
+        pal = {"a": (110, 120, 145), "b": (150, 160, 185), "h": (150, 150, 165)}
+        cv.sprite(x, y, UMBRELLA_SHUT, pal)
+        cx, cy = x + 9, y + 3                       # little sun: "no umbrella needed"
+        cv.rect(cx - 1, cy - 1, 3, 3, (255, 200, 40)); cv.px(cx, cy, (255, 245, 170))
+        on = (f // 4) % 2 == 0
+        for (dx, dy) in ([(0, -3), (0, 3), (-3, 0), (3, 0)] if on else [(-2, -2), (2, -2), (-2, 2), (2, 2)]):
+            cv.px(cx + dx, cy + dy, (255, 210, 60))
+    cv.umbrella = True
+    return True
 
 
 # ----------------------------------------------------------------------------
@@ -646,7 +735,7 @@ def decorate(cv, f, page):
             x = (x0 + f) % 72 - 4
             for dx in range(4):
                 cv.behind(x + dx, y0, (255, 255, 255))
-        if page == "dashboard":
+        if page == "dashboard" and not cv.umbrella:
             widths = [5, 4, 2, 1, 2, 4, 5, 5]
             w = widths[(f // 2) % 8]
             cx = 42
@@ -761,11 +850,14 @@ def render_dashboard(d, f, variant=0):
             cv.rect(x + 1, 31, 5, 2, SHADOW)
             cv.rect(x, 30, 5, 2, DIM)
     cv.text(61, 28, "AQI", LABEL2, align="right")
+    draw_umbrella(cv, d, f)
 
     # --- bottom row: appliances, or info cards when everything is idle ---
     states_ = _appliance_states(d)
     all_idle = all(k in ("idle", "off") for k, _ in states_)
-    if all_idle and variant == 1:
+    # All idle/off -> sunrise/sunset only. Something active -> variant 0 shows the appliances,
+    # variant 1 the sunrise/sunset card (the Pixoo page alternates between them).
+    if all_idle or variant == 1:
         card_sun(cv, d, f)
     else:
         appliance_row(cv, d, f, states_)
@@ -1061,7 +1153,7 @@ def render_weather(d, f):
             continue
         day = fc[n]
         weekend = int(day.get("wd", 0) or 0) in (6, 7)
-        cv.text(x + 8, 35, str(day.get("d", ""))[:2], WEEKEND if weekend else LABEL, align="center")
+        cv.text(x + 8, 36, str(day.get("d", ""))[:2], WEEKEND if weekend else LABEL, align="center")
         weather_icon(cv, x + 3, 41, 10, day.get("c"), False, (f + n * 3) % FRAMES)
         hi, lo = num(day.get("hi")), num(day.get("lo"))
         if hi is not None:
@@ -1119,16 +1211,17 @@ def save_gif(frames, path, gamma=1.0, sat=1.0):
 DEMO = {
     "t_in": 23.8, "t_out": 19.9, "h_in": 41, "h_out": 32, "aqi": 72,
     "wm": "job_ongoing", "td": "job_completed", "pr": "printing", "pr_left": 85, "pr_pct": 62,
-    "time": "10:31", "date": "4.10", "dow": "SUN", "today": "2026-10-04", "sun": "above_horizon",
+    "time": "10:31", "date": "4.10", "dow": "NE", "today": "2026-10-04", "sun": "above_horizon",
     "theme": "neon", "vivid": "vivid", "wm_age": 7200, "td_age": 190000, "pr_age": 400000,
-    "sunrise": "07:02", "sunset": "18:41", "wind_speed": 12, "wind_unit": "km/h", "wind_bearing": 225,
+    "sunrise": "07:02", "sunset": "18:41", "hourly_ok": True,
+    "hourly": [{"t": "14", "p": 10, "mm": 0, "c": "cloudy"}, {"t": "17", "p": 60, "mm": 0.8, "c": "rainy"}], "wind_speed": 12, "wind_unit": "km/h", "wind_bearing": 225,
     "weather": {"condition": "partlycloudy", "temperature": 25},
     "forecast": [
-        {"d": "SU", "wd": 7, "date": "2026-10-04", "c": "partlycloudy", "hi": 25, "lo": 10},
-        {"d": "MO", "wd": 1, "date": "2026-10-05", "c": "rainy", "hi": 24, "lo": 8},
-        {"d": "TU", "wd": 2, "date": "2026-10-06", "c": "sunny", "hi": 18, "lo": 8},
-        {"d": "WE", "wd": 3, "date": "2026-10-07", "c": "cloudy", "hi": 20, "lo": 11},
-        {"d": "TH", "wd": 4, "date": "2026-10-08", "c": "lightning-rainy", "hi": 20, "lo": 12},
+        {"d": "NE", "wd": 7, "date": "2026-10-04", "c": "partlycloudy", "hi": 25, "lo": 10},
+        {"d": "PO", "wd": 1, "date": "2026-10-05", "c": "rainy", "hi": 24, "lo": 8},
+        {"d": "UT", "wd": 2, "date": "2026-10-06", "c": "sunny", "hi": 18, "lo": 9},
+        {"d": "SR", "wd": 3, "date": "2026-10-07", "c": "cloudy", "hi": 20, "lo": 14},
+        {"d": "ČE", "wd": 4, "date": "2026-10-08", "c": "lightning-rainy", "hi": 19, "lo": 12},
     ],
 }
 
@@ -1162,9 +1255,9 @@ def main():
         return path
 
     render(lambda f: render_weather(data, f), os.path.join(OUT_DIR, "weather.gif"))
-    # dashboard_0.gif = normal view; dashboard_1.gif = sunrise/sunset card when everything is idle.
-    # The Pixoo page alternates between them (see gif_url). dashboard_2.gif is kept as a copy of
-    # dashboard_1.gif so older page configs using "% 3" keep working.
+    # dashboard_0.gif = appliances (or sunrise/sunset when everything is idle),
+    # dashboard_1.gif = sunrise/sunset. The Pixoo page alternates between them (see gif_url).
+    # dashboard_2.gif is a copy of dashboard_1.gif for older page configs using "% 3".
     try:
         all_idle = all(k in ("idle", "off") for k, _ in _appliance_states(data))
     except Exception:
@@ -1172,9 +1265,9 @@ def main():
     first = render(lambda f: render_dashboard(data, f, 0), os.path.join(OUT_DIR, "dashboard_0.gif"))
     second = os.path.join(OUT_DIR, "dashboard_1.gif")
     if all_idle:
-        render(lambda f: render_dashboard(data, f, 1), second)
-    else:
         _copy(first, second)
+    else:
+        render(lambda f: render_dashboard(data, f, 1), second)
     _copy(second, os.path.join(OUT_DIR, "dashboard_2.gif"))
     _copy(first, os.path.join(OUT_DIR, "dashboard.gif"))
 

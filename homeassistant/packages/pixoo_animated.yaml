@@ -67,21 +67,40 @@ automation:
           type: daily
         response_variable: fc
         continue_on_error: true
+      - action: weather.get_forecasts
+        target:
+          entity_id: weather.meteo
+        data:
+          type: hourly
+        response_variable: fch
+        continue_on_error: true
       - variables:
           payload: >-
             {% set W = 'weather.meteo' %}
             {% set wm_e = states.input_select.washing_machine_state_machine %}
             {% set td_e = states.input_select.dryer_state_machine %}
             {% set pr_e = states.sensor.p1s_01p00c462500605_print_status %}
-            {% set ns = namespace(days=[]) %}
+            {% set DAYS = ['PO', 'UT', 'SR', 'ČE', 'PE', 'SU', 'NE'] %}
+            {% set ns = namespace(days=[], hours=[]) %}
             {% set items = fc[W].forecast if (fc is defined and fc and W in fc) else [] %}
             {% for f in items[:5] %}
               {% set dt = as_local(as_datetime(f.datetime)) %}
               {% set ns.days = ns.days + [{
-                'd': dt.strftime('%a')[:2] | upper, 'wd': dt.isoweekday(),
+                'd': DAYS[dt.weekday()], 'wd': dt.isoweekday(),
                 'date': dt.date() | string, 'c': f.get('condition'),
                 'hi': f.get('temperature'), 'lo': f.get('templow')
               }] %}
+            {% endfor %}
+            {# hourly forecast for the REST of today -> umbrella on the dashboard #}
+            {% set hitems = fch[W].forecast if (fch is defined and fch and W in fch) else [] %}
+            {% for f in hitems %}
+              {% set dt = as_local(as_datetime(f.datetime)) %}
+              {% if dt.date() == now().date() and dt + timedelta(hours=1) > now() %}
+                {% set ns.hours = ns.hours + [{
+                  't': dt.strftime('%H'), 'p': f.get('precipitation_probability'),
+                  'mm': f.get('precipitation'), 'c': f.get('condition')
+                }] %}
+              {% endif %}
             {% endfor %}
             {% set rise = state_attr('sun.sun', 'next_rising') %}
             {% set sett = state_attr('sun.sun', 'next_setting') %}
@@ -103,7 +122,7 @@ automation:
               'pr_pct': states('sensor.p1s_01p00c462500605_print_progress'),
               'time':   now().strftime('%H:%M'),
               'date':   now().day ~ '.' ~ now().month,
-              'dow':    now().strftime('%a') | upper,
+              'dow':    DAYS[now().weekday()],
               'today':  now().date() | string,
               'sun':    states('sun.sun'),
               'sunrise': as_local(as_datetime(rise)).strftime('%H:%M') if rise else none,
@@ -112,7 +131,9 @@ automation:
               'wind_unit':    state_attr(W, 'wind_speed_unit'),
               'wind_bearing': state_attr(W, 'wind_bearing'),
               'weather': {'condition': states(W), 'temperature': state_attr(W, 'temperature')},
-              'forecast': ns.days
+              'forecast': ns.days,
+              'hourly_ok': hitems | length > 0,
+              'hourly': ns.hours
             } | to_json | base64_encode }}
       - action: shell_command.pixoo_animated_render
         data:

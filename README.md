@@ -11,10 +11,11 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 - **Dashboard:** indoor and outdoor temperature and humidity, an air-quality face with a continuous colour gauge (lit up to the current value with a travelling shine, the rest of the scale dimmed and dotted), and live status for the washing machine, dryer and Bambu Lab P1S printer.
   - The washer drum tumbles, the dryer swirls, and the printer toolhead moves while printing.
   - Print progress shows in the tile's top strip.
-- **Smart idle row:** idle appliances show how long ago they were last used (🕒 2H / 2D). When all of them are idle, the bottom row alternates on every visit with an animated sunrise/sunset scene: the sun rises over shimmering water at dawn and sinks into a red sky at dusk.
+- **Smart bottom row:** when the washer, dryer and printer are all idle or off, the bottom row shows an animated sunrise/sunset scene: the sun rises over shimmering water at dawn and sinks into a red sky at dusk. As soon as one of them becomes active, the page alternates between the appliances and the sunrise/sunset scene. Appliances that are still idle show how long ago they were last used (🕒 2H / 2D).
+- **Umbrella forecast:** using the hourly forecast for the rest of today, the dashboard shows an open umbrella with dripping rain if rain is expected later today, or a closed umbrella with a sun if it isn't. "Expected" means an hour with ≥ 40% chance, ≥ 0.2 mm, or a rainy condition. Tune this with `RAIN_PROB` / `RAIN_MM` in the script.
 
   ![Idle cards](docs/previews/idle_cards.gif)
-- **Weather page:** every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
+- **Weather page:** Croatian day names (PO, UT, SR, ČE, PE, SU, NE). Every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
 - **Themes:** `neon`, `retro_platformer`, `crimson_desert`, `christmas`, `halloween`, `synthwave`, `steel`, and `auto`. `auto` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6.
 - **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
 - **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
@@ -67,6 +68,7 @@ You can also change these constants at the top of `pixoo_render.py`:
 | `pr`, `pr_left`, `pr_pct` | Bambu Lab integration: print status, remaining minutes, progress % |
 | `*_age` | Seconds since the entity's `last_changed`. This resets when HA restarts. |
 | `forecast` | `weather.get_forecasts` (daily) |
+| `hourly`, `hourly_ok` | `weather.get_forecasts` (hourly), only the remaining hours of today |
 
 ## Troubleshooting
 
