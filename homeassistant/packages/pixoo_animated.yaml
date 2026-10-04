@@ -21,6 +21,7 @@ input_select:
       - christmas
       - halloween
       - synthwave
+      - steel
   pixoo_colors:
     name: Pixoo colour boost
     icon: mdi:brightness-6

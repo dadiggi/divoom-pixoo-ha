@@ -26,6 +26,7 @@ FONTS = {"pico": {" ": ".../.../.../...", "!": ".#./.#./.#./...", "$": "###/##./
 BG = (2, 3, 7)
 TILE = (20, 25, 46)
 ZEBRA = (38, 43, 62)
+BRUSH = (30, 35, 52)
 BEV_TOP = (62, 74, 120)
 BEV_LEFT = (44, 53, 90)
 BEV_DARK = (8, 10, 20)
@@ -54,6 +55,9 @@ THEMES = {
     "halloween": dict(bg=(4, 0, 8), tile=(30, 10, 42), bev_top=(255, 120, 0), bev_left=(170, 70, 0),
                  bev_dark=(6, 0, 10), label=(255, 160, 40), label2=(190, 120, 255),
                  time=(255, 140, 20), weekend=(190, 120, 255), style="plain", decor="bats"),
+    "steel": dict(bg=(4, 5, 7), tile=(34, 38, 45), bev_top=(190, 200, 215), bev_left=(125, 134, 150),
+                 bev_dark=(10, 11, 14), label=(200, 210, 225), label2=(150, 165, 185),
+                 time=(160, 205, 255), weekend=(255, 175, 90), style="steel", decor="steel"),
     "synthwave": dict(bg=(8, 0, 18), tile=(28, 6, 48), bev_top=(255, 50, 200), bev_left=(0, 200, 255),
                  bev_dark=(10, 0, 25), label=(90, 240, 255), label2=(255, 120, 230),
                  time=(255, 80, 220), weekend=(255, 220, 90), style="plain", decor="synth"),
@@ -66,7 +70,7 @@ VIVID = {  # (gamma, saturation) presets, selectable from HA
 
 def apply_theme(name, today=""):
     global BG, TILE, ZEBRA, BEV_TOP, BEV_LEFT, BEV_DARK, LABEL, LABEL2, TIME_C, WEEKEND
-    global TILE_STYLE, DECOR, THEME_NAME
+    global TILE_STYLE, DECOR, THEME_NAME, BRUSH
     name = (name or "auto").lower().replace(" ", "_")
     if name == "auto":
         md = str(today)[5:10]          # "MM-DD"
@@ -78,6 +82,7 @@ def apply_theme(name, today=""):
     LABEL, LABEL2, TIME_C, WEEKEND = t["label"], t["label2"], t["time"], t["weekend"]
     TILE_STYLE, DECOR = t["style"], t["decor"]
     ZEBRA = shade(TILE, 0.08)
+    BRUSH = shade(TILE, 0.12)
 SHADOW = (3, 4, 9)
 GREY = (115, 122, 150)
 DIM = (80, 85, 110)
@@ -158,7 +163,7 @@ class Canvas:
 
     def is_bg(self, x, y):
         """True where nothing but background/tile fill is drawn (used for 'behind content' decor)."""
-        return 0 <= x < 64 and 0 <= y < 64 and self.p[x, y] in (BG, TILE, ZEBRA)
+        return 0 <= x < 64 and 0 <= y < 64 and self.p[x, y] in (BG, TILE, ZEBRA, BRUSH)
 
     def behind(self, x, y, c):
         if self.is_bg(int(x), int(y)):
@@ -188,6 +193,12 @@ class Canvas:
                 if (i - x) % 4 == 3: self.px(i, y, BEV_DARK)
             for j in range(y, y + h):
                 if (j - y) % 3 == 2: self.px(x, j, BEV_DARK)
+        elif TILE_STYLE == "steel":     # brushed-metal streaks inside the plate
+            for j in range(y + 1, y + h - 1):
+                hsh = (j * 131 + x * 7) % 97
+                sx = x + 1 + hsh % max(1, w - 2)
+                for i in range(sx, min(x + w - 1, sx + 6 + hsh % 11)):
+                    self.px(i, j, BRUSH)
         elif TILE_STYLE == "snow":      # snow caps dripping over the top edge
             for i in range(x + 1, x + w - 1):
                 if (i * 37 + y * 11) % 7 in (0, 3):
@@ -389,6 +400,51 @@ def printer(cv, x, y, k, pct, f):
 
 
 # ----------------------------------------------------------------------------
+# AQI gauge
+# ----------------------------------------------------------------------------
+AQI_STOPS = [(0, (0, 225, 90)), (50, (255, 225, 0)), (100, (255, 130, 0)),
+             (150, (255, 40, 40)), (200, (190, 70, 255)), (300, (150, 20, 100))]
+
+
+def aqi_color(a):
+    a = max(0.0, min(300.0, float(a)))
+    for (a0, c0), (a1, c1) in zip(AQI_STOPS, AQI_STOPS[1:]):
+        if a <= a1:
+            return mix(c0, c1, (a - a0) / (a1 - a0))
+    return AQI_STOPS[-1][1]
+
+
+def aqi_gauge(cv, a, f):
+    """60-px pill gauge: lit up to the current value (with a travelling shine), the rest of the
+    scale stays visible in its own colours but dimmed and dotted, plus a pointer under the value."""
+    X0, W, Y = 2, 60, 34
+    mx = None if a is None else X0 + int(min(max(a, 0), 299) * W / 300)
+    shine = None
+    if mx is not None and mx > X0:
+        shine = X0 + (f * (mx - X0 + 8) // FRAMES) - 4
+    for i in range(W):
+        x = X0 + i
+        c = aqi_color(i * 300 / W)
+        lit = mx is not None and x <= mx
+        if lit:
+            top, mid, bot = mix(c, (255, 255, 255), 0.45), c, shade(c, -0.45)
+            if shine is not None and abs(x - shine) <= 1:
+                top, mid = (255, 255, 255), mix(c, (255, 255, 255), 0.5)
+        else:
+            k = -0.5 if i % 2 == 0 else -0.62           # dotted texture = "not reached"
+            top, mid, bot = shade(c, k - 0.05), shade(c, k), shade(c, -0.8)
+        cv.px(x, Y, top); cv.px(x, Y + 1, mid); cv.px(x, Y + 2, bot)
+    for (x, y) in [(X0, Y), (X0, Y + 2), (X0 + W - 1, Y), (X0 + W - 1, Y + 2)]:
+        cv.px(x, y, TILE)                                 # rounded pill ends
+    if mx is not None:
+        glow = mix(aqi_color(a), (255, 255, 255), pulse(f, 0.3, 0.9))
+        cv.rect(mx, Y - 1, 1, 4, (255, 255, 255))
+        cv.px(mx - 1, Y - 1, SHADOW); cv.px(mx + 1, Y - 1, SHADOW)
+        cv.rect(mx - 1, Y + 3, 3, 1, glow)               # pointer under the gauge
+        cv.px(mx, Y + 3, (255, 255, 255))
+
+
+# ----------------------------------------------------------------------------
 # Bottom row helpers
 # ----------------------------------------------------------------------------
 CLOCK = ([".###.", "#.#.#", "#.###", "#...#", ".###."], None)
@@ -462,44 +518,64 @@ def appliance_row(cv, d, f, states_):
     cv.text(54, 57, label, tc, align="center", grad=GRAD_SMALL)
 
 
+def _scene(cv, x0, w, rising, f, t_str):
+    """Mini landscape: sky gradient, sun moving across the horizon, shimmering water, time below."""
+    y0, hz = 43, 51                                  # sky rows 43..50, water 51..54
+    if rising:
+        sky_top, sky_hz = (25, 35, 110), (255, 150, 60)
+        sun_c, sun_edge, water = (255, 230, 120), (255, 140, 30), (20, 40, 110)
+        sy = 54 - 7 * f / (FRAMES - 1)               # 54 -> 47 (rising)
+    else:
+        sky_top, sky_hz = (45, 10, 70), (255, 70, 40)
+        sun_c, sun_edge, water = (255, 170, 70), (230, 50, 30), (40, 15, 60)
+        sy = 47 + 7 * f / (FRAMES - 1)               # 47 -> 54 (setting)
+    for j in range(y0, hz):
+        cv.rect(x0, j, w, 1, mix(sky_top, sky_hz, ((j - y0) / (hz - 1 - y0)) ** 1.6))
+    cx = x0 + w // 2
+    # glow on the horizon
+    for i in range(w):
+        d = abs(x0 + i - cx)
+        if d < 9:
+            cv.px(x0 + i, hz - 1, mix(cv.get(x0 + i, hz - 1), (255, 220, 140), 0.6 * (1 - d / 9)))
+    r = 3.2
+    for j in range(int(sy - r) - 1, int(sy + r) + 2):
+        for i in range(cx - 4, cx + 5):
+            dd = math.hypot(i + 0.5 - (cx + 0.5), j + 0.5 - sy)
+            if dd <= r and y0 <= j < hz:
+                cv.px(i, j, mix(sun_c, sun_edge, dd / r))
+    if sy < hz - 2:                                 # short rays once the sun is up
+        for n in range(5):
+            a = math.pi + n * math.pi / 4
+            L = r + 1.5 + pulse(f, 0, 1.2, phase=n)
+            px_, py_ = cx + 0.5 + math.cos(a) * L, sy + math.sin(a) * L
+            if y0 <= py_ < hz - 1:
+                cv.px(int(px_), int(py_), shade(sun_c, -0.1))
+    # water with shimmering sun reflection
+    for j in range(hz, hz + 4):
+        cv.rect(x0, j, w, 1, shade(water, -0.15 * (j - hz)))
+        spread = 5 - (j - hz)
+        for i in range(-spread, spread + 1):
+            if (i + j + f // 2) % 3 == 0:
+                cv.px(cx + i, j, mix(water, sun_c, 0.75 - 0.15 * (j - hz)))
+    cv.rect(x0, hz, w, 1, mix(water, sky_hz, 0.6))    # bright horizon line
+    if rising:                                      # a bird crossing the dawn sky
+        bx = x0 + (f * (w + 4) // FRAMES) - 2
+        by = 45 + (1 if (f // 2) % 2 else 0)
+        for (dx, dy) in ([(0, 0), (1, 1), (2, 0)] if (f // 2) % 2 else [(0, 1), (1, 0), (2, 1)]):
+            if x0 <= bx + dx < x0 + w:
+                cv.px(bx + dx, by + dy, (40, 30, 60))
+    else:                                           # first stars appearing at dusk
+        for (sx, sy2, ph) in [(x0 + 3, 44, 0), (x0 + w - 4, 45, 2), (x0 + 9, 46, 4)]:
+            cv.px(sx, sy2, shade((255, 240, 200), pulse(f, -0.8, 0, phase=ph)))
+    tc = AMBER if rising else (255, 110, 60)
+    cv.text(cx, 56, t_str, tc, "gicko", "center", grad=GRAD_MID)
+
+
 def card_sun(cv, d, f):
     cv.tile(0, 41, 64, 23)
-    sun(cv, 2, 44, 16, f)
-    rise, sett = str(d.get("sunrise") or "--:--"), str(d.get("sunset") or "--:--")
-    tri(cv, 21, 47, UP[0], AMBER)
-    cv.text(28, 45, rise, AMBER, "gicko", grad=GRAD_MID)
-    tri(cv, 21, 56, DOWN[0], (255, 110, 60))
-    cv.text(28, 54, sett, (255, 110, 60), "gicko", grad=GRAD_MID)
-
-
-CARDINALS = {"N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5, "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
-             "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5, "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5}
-
-
-def card_wind(cv, d, f):
-    cv.tile(0, 41, 64, 23)
-    wind(cv, 1, 42, 18, f)
-    spd = num(d.get("wind_speed"))
-    cv.text(22, 45, "%d" % round(spd), CYAN, "gicko", grad=GRAD_MID)
-    cv.text(22, 55, str(d.get("wind_unit") or "KM/H").upper()[:5], LABEL2)
-    b = d.get("wind_bearing")
-    bearing = num(b)
-    if bearing is None and isinstance(b, str):
-        bearing = CARDINALS.get(b.upper())
-    cx, cy, r = 53, 52, 7
-    for n in range(32):
-        a = 2 * math.pi * n / 32
-        cv.px(round(cx + r * math.sin(a)), round(cy - r * math.cos(a)), shade(LABEL2, -0.55))
-    cv.px(cx, cy - r, RED); cv.px(cx, cy - r - 1, RED)            # north marker
-    if bearing is not None:
-        a = math.radians(bearing + 180 + 6 * math.sin(2 * math.pi * f / FRAMES))  # wind blows TO
-        dx, dy = math.sin(a), -math.cos(a)
-        for t in range(-4, 6):
-            cv.px(round(cx + dx * t), round(cy + dy * t), (255, 255, 255) if t > 0 else shade(LABEL2, -0.2))
-        tip = (cx + dx * 5, cy + dy * 5)
-        for side in (-1, 1):
-            a2 = a + math.pi + side * 0.6
-            cv.px(round(tip[0] + 2 * math.sin(a2)), round(tip[1] - 2 * math.cos(a2)), (255, 255, 255))
+    _scene(cv, 2, 28, True, f, str(d.get("sunrise") or "--:--"))
+    _scene(cv, 34, 28, False, f, str(d.get("sunset") or "--:--"))
+    cv.rect(31, 43, 2, 18, BEV_DARK)
 
 
 # ----------------------------------------------------------------------------
@@ -550,6 +626,20 @@ def decorate(cv, f, page):
         for x in range(64):
             cv.behind(x, sy, shade(TILE, 0.45))
             cv.behind(x, sy - 1, shade(TILE, 0.2))
+    elif DECOR == "steel":
+        # rivets in the plate corners + a specular glint sliding along every top bevel
+        for (x, y, w, h) in cv.tiles:
+            for (rx, ry) in ((x + 2, y + 2), (x + w - 3, y + 2), (x + 2, y + h - 3), (x + w - 3, y + h - 3)):
+                if all(cv.is_bg(rx + dx, ry + dy) for dx in (-1, 0, 1, 2) for dy in (-1, 0, 1, 2)):
+                    cv.px(rx, ry, (175, 185, 200)); cv.px(rx + 1, ry + 1, (12, 13, 16))
+            pos = x + (f * (w + 10) // FRAMES) - 5
+            for d in range(-2, 3):
+                if x <= pos + d < x + w:
+                    cv.px(pos + d, y, mix(BEV_TOP, (255, 255, 255), 1 - abs(d) / 3))
+            ly = y + (f * (h + 6) // FRAMES) - 3
+            for d in range(-1, 2):
+                if y <= ly + d < y + h:
+                    cv.px(x, ly + d, mix(BEV_LEFT, (255, 255, 255), 0.7 - abs(d) * 0.3))
     elif DECOR == "coins":
         # drifting clouds in the sky gaps + a spinning coin in the AQI tile
         for x0, y0 in ((5, 24), (40, 39), (22, 9 if page == "weather" else 24)):
@@ -643,19 +733,10 @@ def render_dashboard(d, f, variant=0):
             cv.text(x1 - 1, 3, s, hc, align="right")
             cv.sprite(x1 - 1 - w - 7, 2, *DROP)
 
-    # --- AQI ---
+    # --- AQI: continuous colour gauge ---
     a = num(d.get("aqi"))
-    segs = [(0, 50, (0, 235, 70)), (50, 100, (255, 225, 0)), (100, 150, (255, 130, 0)),
-            (150, 200, (255, 40, 40)), (200, 300, (190, 70, 255))]
-    col = GREY
-    for i, (s0, s1, c) in enumerate(segs):
-        active = a is not None and a >= s0 and (a < s1 or i == len(segs) - 1)
-        if active: col = c
-        k = 1.0 if active else 0.28
-        x, w = 2 + s0 // 5, (s1 - s0) // 5
-        cv.rect(x, 35, w, 1, shade(mix(c, (255, 255, 255), 0.5), k - 1))
-        cv.rect(x, 36, w, 1, shade(c, k - 1))
-        cv.rect(x, 37, w, 1, shade(c, k * 0.5 - 1))
+    aqi_gauge(cv, a, f)
+    col = aqi_color(a) if a is not None else GREY
     if a is not None:
         a = int(round(a))
         cv.rect(3, 28, 7, 7, SHADOW)
@@ -675,9 +756,6 @@ def render_dashboard(d, f, variant=0):
         for p in mouth: cv.px(*p, K)
         s = str(a)
         cv.text(12, 27, s, col, "gicko", grad=GRAD_MID, glint=glint_pos(f, cv.text_width(s, "gicko")))
-        mx = 2 + min(a, 299) // 5
-        cv.rect(mx - 1, 34, 3, 4, SHADOW)
-        cv.rect(mx, 33, 1, 5, mix(col, (255, 255, 255), pulse(f, 0.35, 1.0)))
     else:
         for x in (3, 12, 19):
             cv.rect(x + 1, 31, 5, 2, SHADOW)
@@ -689,8 +767,6 @@ def render_dashboard(d, f, variant=0):
     all_idle = all(k in ("idle", "off") for k, _ in states_)
     if all_idle and variant == 1:
         card_sun(cv, d, f)
-    elif all_idle and variant == 2 and num(d.get("wind_speed")) is not None:
-        card_wind(cv, d, f)
     else:
         appliance_row(cv, d, f, states_)
     decorate(cv, f, "dashboard")
@@ -741,7 +817,7 @@ def sun(cv, x, y, S, f, cx=None, cy=None, r=None):
     r = 5 * k if r is None else r
     # rays
     for n in range(8):
-        a = n * math.pi / 4 + (math.pi / 8 if S < 12 else 0)
+        a = n * math.pi / 4 + (math.pi / 8 if S < 12 else (math.pi / 4) * f / FRAMES)
         if S < 12:
             on = (n + f // 4) % 2 == 0
             L0, L1 = r + 1.2, r + 2.2
@@ -780,6 +856,13 @@ def moon(cv, x, y, S, f, cx=None, cy=None, r=None, stars=True):
             if math.hypot(px_ - cx, py_ - cy) <= r and math.hypot(px_ - (cx + r * 0.55), py_ - (cy - r * 0.35)) > r * 0.85:
                 t = (py_ - (cy - r)) / (2 * r)
                 cv.px(x + i, y + j, mix((255, 250, 215), (220, 190, 110), t))
+    if S >= 12:   # soft pulsing halo on the lit edge
+        g = pulse(f, 0.0, 0.35)
+        for j in range(S):
+            for i in range(S):
+                d0 = math.hypot(i + 0.5 - cx, j + 0.5 - cy)
+                if r < d0 <= r + 1.2 and (i + 0.5 - cx) < r * 0.3:
+                    cv.px(x + i, y + j, mix(cv.get(x + i, y + j), (255, 240, 170), g))
     if stars:
         pts = [(0.75, 0.15, 0.0), (0.88, 0.55, 2.0), (0.6, 0.85, 4.0), (0.15, 0.1, 1.0)] if S >= 12 else [(0.85, 0.15, 0.0)]
         for sx, sy, ph in pts:
@@ -883,20 +966,26 @@ def warning(cv, x, y, S, f):
 def weather_icon(cv, x, y, S, cond, night, f):
     cond = (cond or "").lower()
     big = S >= 12
-    drift = round(math.sin(2 * math.pi * f / FRAMES)) if big else 0
+    # Every icon moves: clouds drift (big: +-2 px, small: +-1 px), moons bob, sun rays turn.
+    ph = 2 * math.pi * f / FRAMES
+    drift = round((2 if big else 1) * math.sin(ph))
+    drift2 = round((1.5 if big else 1) * math.sin(ph + math.pi * 0.7))
+    bob = round(math.sin(ph)) if big else (1 if (f // 4) % 2 else 0)
     WHITE, GREYC, DARKC = (225, 232, 245), (150, 160, 185), (95, 100, 125)
     if cond in ("sunny",):
         sun(cv, x, y, S, f)
     elif cond == "clear-night":
-        moon(cv, x, y, S, f)
+        moon(cv, x, y + bob, S, f)
     elif cond == "partlycloudy":
         if night:
-            moon(cv, x, y, S, f, cx=S * 0.38, cy=S * 0.36, r=S * 0.25, stars=big)
+            moon(cv, x, y + (bob if big else 0), S, f, cx=S * 0.38, cy=S * 0.36, r=S * 0.25, stars=big)
         else:
-            sun(cv, x, y, S, f, cx=S * 0.36, cy=S * 0.36, r=S * (0.19 if big else 0.22))
-        cloud(cv, x, y, S, WHITE, sc=0.78, ox=S * 0.22 + drift, oy=S * 0.25)
+            sun(cv, x, y, S, f, cx=S * (0.36 if big else 0.32), cy=S * (0.36 if big else 0.32),
+                r=S * (0.19 if big else 0.26))
+        cloud(cv, x, y, S, WHITE, sc=0.78 if big else 0.72, ox=S * (0.22 if big else 0.3) + drift,
+              oy=S * (0.25 if big else 0.32))
     elif cond == "cloudy":
-        cloud(cv, x, y, S, GREYC, sc=0.7, ox=S * 0.3 - drift, oy=S * 0.02)
+        cloud(cv, x, y, S, GREYC, sc=0.7, ox=S * 0.3 + drift2, oy=S * 0.02)
         cloud(cv, x, y, S, WHITE, sc=0.85, ox=drift, oy=S * 0.2)
     elif cond in ("rainy", "pouring", "snowy", "snowy-rainy", "hail"):
         base = GREYC if cond in ("pouring", "hail") else WHITE
@@ -905,7 +994,7 @@ def weather_icon(cv, x, y, S, cond, night, f):
         precip(cv, x, y, S, f, kind)
     elif cond in ("lightning", "lightning-rainy"):
         flash = 0.35 if f in (0, 8) else 0.0
-        cloud(cv, x, y, S, DARKC, sc=0.9, ox=S * 0.03, oy=-S * 0.12, flash=flash)
+        cloud(cv, x, y, S, DARKC, sc=0.9, ox=S * 0.03 + drift, oy=-S * 0.12, flash=flash)
         if cond == "lightning-rainy":
             precip(cv, x, y, S, f, "rain")
         bolt(cv, x, y, S, f)
@@ -913,7 +1002,7 @@ def weather_icon(cv, x, y, S, cond, night, f):
         fog(cv, x, y, S, f)
     elif cond in ("windy", "windy-variant"):
         if cond == "windy-variant":
-            cloud(cv, x, y, S, GREYC, sc=0.6, ox=S * 0.35, oy=-S * 0.15)
+            cloud(cv, x, y, S, GREYC, sc=0.6, ox=S * 0.35 + drift, oy=-S * 0.15)
         wind(cv, x, y, S, f)
     else:
         warning(cv, x, y, S, f)
@@ -1073,20 +1162,20 @@ def main():
         return path
 
     render(lambda f: render_weather(data, f), os.path.join(OUT_DIR, "weather.gif"))
-    # dashboard_0/1/2.gif: when everything is idle, 1 = sunrise/sunset card, 2 = wind card.
-    # The Pixoo page picks a different variant on each visit (see gif_url template).
+    # dashboard_0.gif = normal view; dashboard_1.gif = sunrise/sunset card when everything is idle.
+    # The Pixoo page alternates between them (see gif_url). dashboard_2.gif is kept as a copy of
+    # dashboard_1.gif so older page configs using "% 3" keep working.
     try:
         all_idle = all(k in ("idle", "off") for k, _ in _appliance_states(data))
     except Exception:
         all_idle = False
-    first = None
-    for v in range(3):
-        path = os.path.join(OUT_DIR, "dashboard_%d.gif" % v)
-        if v == 0 or all_idle:
-            render(lambda f, v=v: render_dashboard(data, f, v), path)
-            first = first or path
-        else:
-            _copy(first, path)
+    first = render(lambda f: render_dashboard(data, f, 0), os.path.join(OUT_DIR, "dashboard_0.gif"))
+    second = os.path.join(OUT_DIR, "dashboard_1.gif")
+    if all_idle:
+        render(lambda f: render_dashboard(data, f, 1), second)
+    else:
+        _copy(first, second)
+    _copy(second, os.path.join(OUT_DIR, "dashboard_2.gif"))
     _copy(first, os.path.join(OUT_DIR, "dashboard.gif"))
 
     status = "%s  theme=%s  colours=%s  all_idle=%s\n" % (data.get("time"), THEME_NAME, preset, all_idle)

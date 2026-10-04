@@ -1,12 +1,12 @@
 # Paste into: Settings > Devices & services > Divoom Pixoo 64 > Configure > "List of pages in YAML"
 # Replace 192.168.50.X with your Home Assistant IP (plain http on your LAN).
 #
-# dashboard_N: when washer, dryer and printer are all idle, the bottom row rotates between
-# "last used", sunrise/sunset and wind on every visit of the page.
+# dashboard_N: when washer, dryer and printer are all idle, the bottom row alternates between
+# "last used" and an animated sunrise/sunset card on every visit of the page.
 
 - page_type: gif
   gif_url: "http://192.168.50.X:8123/local/pixoo/weather.gif?v={{ as_timestamp(now()) | int }}"
   duration: 5
 - page_type: gif
-  gif_url: "http://192.168.50.X:8123/local/pixoo/dashboard_{{ ((as_timestamp(now()) | int) // 10) % 3 }}.gif?v={{ as_timestamp(now()) | int }}"
+  gif_url: "http://192.168.50.X:8123/local/pixoo/dashboard_{{ ((as_timestamp(now()) | int) // 10) % 2 }}.gif?v={{ as_timestamp(now()) | int }}"
   duration: 5

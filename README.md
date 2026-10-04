@@ -8,14 +8,14 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 ## Features
 
 - **Two animated pages**: a home dashboard and a weather page with a 4-day forecast.
-- **Dashboard:** indoor and outdoor temperature and humidity, an air-quality face and scale, and live status for the washing machine, dryer and Bambu Lab P1S printer.
+- **Dashboard:** indoor and outdoor temperature and humidity, an air-quality face with a continuous colour gauge (lit up to the current value with a travelling shine, the rest of the scale dimmed and dotted), and live status for the washing machine, dryer and Bambu Lab P1S printer.
   - The washer drum tumbles, the dryer swirls, and the printer toolhead moves while printing.
   - Print progress shows in the tile's top strip.
-- **Smart idle row:** when all appliances are idle, the bottom row rotates on every visit between "last used" ages (🕒 2H / 2D), sunrise/sunset, and a wind card with a compass.
+- **Smart idle row:** idle appliances show how long ago they were last used (🕒 2H / 2D). When all of them are idle, the bottom row alternates on every visit with an animated sunrise/sunset scene: the sun rises over shimmering water at dawn and sinks into a red sky at dusk.
 
   ![Idle cards](docs/previews/idle_cards.gif)
-- **Weather page:** animated icons (sun, moon and stars at night, rain, snow, lightning, fog, wind), the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
-- **Themes:** `neon`, `retro_platformer`, `crimson_desert`, `christmas`, `halloween`, `synthwave`, and `auto`. `auto` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6.
+- **Weather page:** every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
+- **Themes:** `neon`, `retro_platformer`, `crimson_desert`, `christmas`, `halloween`, `synthwave`, `steel`, and `auto`. `auto` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6.
 - **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
 - **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
 
@@ -23,7 +23,7 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 |---|---|
 | ![](docs/previews/theme_retro_platformer.gif) | ![](docs/previews/theme_crimson_desert.gif) |
 | ![](docs/previews/theme_christmas.gif) | ![](docs/previews/theme_halloween.gif) |
-| ![](docs/previews/theme_synthwave.gif) | |
+| ![](docs/previews/theme_synthwave.gif) | ![](docs/previews/theme_steel.gif) |
 
 ## How it works
 
