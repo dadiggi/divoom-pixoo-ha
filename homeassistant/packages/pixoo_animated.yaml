@@ -31,7 +31,7 @@ input_select:
       - "off"
 
 shell_command:
-  pixoo_render: "python3 /config/pixoo/pixoo_render.py {{ payload }}"
+  pixoo_animated_render: "python3 /config/pixoo/pixoo_render.py {{ payload }}"
 
 automation:
   - id: pixoo_render_animated_pages
@@ -113,7 +113,7 @@ automation:
               'weather': {'condition': states(W), 'temperature': state_attr(W, 'temperature')},
               'forecast': ns.days
             } | to_json | base64_encode }}
-      - action: shell_command.pixoo_render
+      - action: shell_command.pixoo_animated_render
         data:
           payload: "{{ payload }}"
         response_variable: result

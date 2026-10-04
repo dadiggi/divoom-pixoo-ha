@@ -70,6 +70,10 @@ You can also change these constants at the top of `pixoo_render.py`:
 
 ## Troubleshooting
 
+- **Only one page shows, or the time on the weather page is frozen:** open `http://<HA-IP>:8123/local/pixoo/status.txt`.
+  - If it's missing or old, the renderer isn't running. Check that `input_select.pixoo_theme` exists under *Developer tools → States*. If it doesn't, the package didn't load: make sure `packages:` is enabled, and look for "package" errors in the log.
+  - If it lists `ERRORS`, the traceback shows what failed. Please open an issue with it.
+
 - **Page stays black:** check the GIF URL in a browser from another device. The Pixoo needs plain `http` on your LAN. If it still doesn't work, try removing the `?v=` cache-buster.
 - **Colours look too dark or too bright:** switch `Pixoo colour boost` to `soft` or `extra vivid`.
 - **Nothing updates:** look in *Settings → System → Logs* for `pixoo_render` warnings.

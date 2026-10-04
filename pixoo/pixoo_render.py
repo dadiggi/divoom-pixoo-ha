@@ -9,7 +9,7 @@ which the divoom_pixoo integration shows with `page_type: gif`.
 
 Only needs Pillow, which ships with Home Assistant.
 """
-import base64, json, math, os, sys
+import base64, json, math, os, sys, traceback
 from PIL import Image, ImageEnhance
 
 OUT_DIR = os.environ.get("PIXOO_OUT", "/config/www/pixoo")
@@ -205,9 +205,19 @@ class Canvas:
                     self.px(x + i, y + j, pal[ch])
 
     # --- text ---
-    def text_width(self, s, font="pico"):
+    @staticmethod
+    def glyph(font, ch):
+        """Glyph lookup that never fails: falls back to upper-case, then the pico font, then blank."""
         g = _GLYPHS[font]
-        w = sum(g.get(ch, g.get("?", (3, 5, [])))[0] + 1 for ch in s)
+        got = g.get(ch) or g.get(str(ch).upper())
+        if got is None and font != "pico":
+            p = _GLYPHS["pico"].get(ch) or _GLYPHS["pico"].get(str(ch).upper())
+            if p is not None:
+                return p
+        return got or (3, 5, [[False] * 3 for _ in range(5)])
+
+    def text_width(self, s, font="pico"):
+        w = sum(self.glyph(font, ch)[0] + 1 for ch in str(s))
         return max(0, w - 1)
 
     def text(self, x, y, s, color, font="pico", align="left", shadow=True,
@@ -216,12 +226,12 @@ class Canvas:
         w = self.text_width(s, font)
         if align == "center": x -= w // 2
         elif align == "right": x -= w
-        g = _GLYPHS[font]
+        s = str(s)
         layers = ([(1, True)] if shadow else []) + [(0, False)]
         for off, is_shadow in layers:
             cx = x
             for ch in s:
-                gw, gh, m = g.get(ch, g.get("?"))
+                gw, gh, m = self.glyph(font, ch)
                 for j in range(gh):
                     for i in range(gw):
                         if m[j][i]:
@@ -987,6 +997,21 @@ def led_correct(img, gamma, sat):
     return img
 
 
+def _copy(src, dst):
+    with open(src, "rb") as a, open(dst + ".tmp", "wb") as b:
+        b.write(a.read())
+    os.replace(dst + ".tmp", dst)
+
+
+def error_frame(name):
+    cv = Canvas()
+    cv.tile(0, 0, 64, 64)
+    cv.text(32, 20, "RENDER", RED, align="center")
+    cv.text(32, 28, "ERROR", RED, align="center")
+    cv.text(32, 40, name.split(".")[0][:15].upper(), GREY, align="center")
+    return cv.img
+
+
 def save_gif(frames, path, gamma=1.0, sat=1.0):
     frames = [led_correct(fr, gamma, sat) for fr in frames]
     if NIGHT_DIM != 1.0:
@@ -1028,26 +1053,49 @@ def main():
         print("usage: pixoo_render.py <base64-json> | --demo", file=sys.stderr)
         sys.exit(2)
     os.makedirs(OUT_DIR, exist_ok=True)
-    apply_theme(data.get("theme"), data.get("today", ""))
+    errors = []
+    try:
+        apply_theme(data.get("theme"), data.get("today", ""))
+    except Exception:
+        errors.append("theme: " + traceback.format_exc())
+        apply_theme("neon")
     preset = str(data.get("vivid") or "vivid").lower().split("(")[0].strip()
     gamma, sat = VIVID.get(preset, VIVID["vivid"])
-    save_gif([render_weather(data, f) for f in range(FRAMES)], os.path.join(OUT_DIR, "weather.gif"), gamma, sat)
+
+    def render(fn, path):
+        """Render one page; on failure write a visible error screen so the Pixoo still shows something."""
+        try:
+            frames = [fn(f) for f in range(FRAMES)]
+        except Exception:
+            errors.append(os.path.basename(path) + ": " + traceback.format_exc())
+            frames = [error_frame(os.path.basename(path))] * 2
+        save_gif(frames, path, gamma, sat)
+        return path
+
+    render(lambda f: render_weather(data, f), os.path.join(OUT_DIR, "weather.gif"))
     # dashboard_0/1/2.gif: when everything is idle, 1 = sunrise/sunset card, 2 = wind card.
     # The Pixoo page picks a different variant on each visit (see gif_url template).
-    all_idle = all(k in ("idle", "off") for k, _ in _appliance_states(data))
+    try:
+        all_idle = all(k in ("idle", "off") for k, _ in _appliance_states(data))
+    except Exception:
+        all_idle = False
     first = None
     for v in range(3):
         path = os.path.join(OUT_DIR, "dashboard_%d.gif" % v)
         if v == 0 or all_idle:
-            save_gif([render_dashboard(data, f, v) for f in range(FRAMES)], path, gamma, sat)
+            render(lambda f, v=v: render_dashboard(data, f, v), path)
             first = first or path
         else:
-            with open(first, "rb") as src, open(path + ".tmp", "wb") as dst:
-                dst.write(src.read())
-            os.replace(path + ".tmp", path)
-    with open(first, "rb") as src, open(os.path.join(OUT_DIR, "dashboard.gif.tmp"), "wb") as dst:
-        dst.write(src.read())
-    os.replace(os.path.join(OUT_DIR, "dashboard.gif.tmp"), os.path.join(OUT_DIR, "dashboard.gif"))
+            _copy(first, path)
+    _copy(first, os.path.join(OUT_DIR, "dashboard.gif"))
+
+    status = "%s  theme=%s  colours=%s  all_idle=%s\n" % (data.get("time"), THEME_NAME, preset, all_idle)
+    status += ("ERRORS:\n" + "\n".join(errors)) if errors else "OK\n"
+    with open(os.path.join(OUT_DIR, "status.txt"), "w") as fh:
+        fh.write(status)
+    if errors:
+        print(status, file=sys.stderr)
+        sys.exit(1)
     print("ok theme=%s vivid=%s" % (THEME_NAME, preset))
 
 
