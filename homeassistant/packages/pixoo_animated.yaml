@@ -10,11 +10,12 @@
 # =============================================================================
 
 input_select:
+  # WHAT the pages look like (layout + art style)
   pixoo_design:
     name: Pixoo design
     icon: mdi:palette-swatch-variant
     options:
-      - classic                 # tiles design (uses "Pixoo theme")
+      - classic
       - mondrian
       - van_gogh
       - hokusai
@@ -22,21 +23,35 @@ input_select:
       - digital_rain
       - block_3d
       - hud
-      - rotate daily            # cycles classic + all art designs, one per day
-      - rotate hourly
-      - rotate daily (art only)   # all designs except classic
+      - comic
+      - mech
+      - platformer
+      - rotate                  # a different design every rotation interval
+      - rotate (no classic)
+  # HOW it is coloured - works with every design
   pixoo_theme:
-    name: Pixoo theme (classic design)
+    name: Pixoo theme
     icon: mdi:palette
     options:
-      - auto              # neon, Halloween (Oct 24-31), Christmas (Dec 1 - Jan 6)
+      - original                # the design's own intended colours
+      - seasonal (auto)         # original; Halloween Oct 24-31; Christmas Dec 1 - Jan 6
       - neon
-      - retro_platformer
+      - steel
+      - synthwave
       - crimson_desert
       - christmas
       - halloween
-      - synthwave
-      - steel
+      - retro_platformer
+      - rotate                  # a different theme every rotation interval
+  # HOW OFTEN design/theme change when set to "rotate"
+  pixoo_rotation:
+    name: Pixoo rotation interval
+    icon: mdi:rotate-3d-variant
+    options:
+      - daily
+      - every 6 hours
+      - hourly
+  # Panel calibration (not a style): keeps colours vivid at low brightness
   pixoo_colors:
     name: Pixoo colour boost
     icon: mdi:brightness-6
@@ -64,6 +79,7 @@ automation:
         entity_id:
           - input_select.pixoo_design
           - input_select.pixoo_theme
+          - input_select.pixoo_rotation
           - input_select.pixoo_colors
           - sensor.netatmo_smart_thermostat_current_temperature
           - sensor.outdoor_module_temperature
@@ -123,6 +139,7 @@ automation:
             {{ {
               'design': states('input_select.pixoo_design'),
               'theme':  states('input_select.pixoo_theme'),
+              'rotation': states('input_select.pixoo_rotation'),
               'vivid':  states('input_select.pixoo_colors'),
               't_in':   states('sensor.netatmo_smart_thermostat_current_temperature'),
               't_out':  states('sensor.outdoor_module_temperature'),

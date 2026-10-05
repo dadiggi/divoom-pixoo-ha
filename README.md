@@ -5,7 +5,13 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
 ![Neon theme](docs/previews/theme_neon.gif)
 
-**FX designs:** three designs with their own fonts and layouts.
+**More designs:** each has its own fonts and layout.
+
+| | | |
+|---|---|---|
+| **comic**: halftone panels with slanted gutters, speech bubbles, action bursts, captions | **mech**: steel bulkhead, amber CRT screens with scanlines, analog air-quality needle, annunciator lamps | **platformer**: original 8-bit world; air quality as health hearts, wooden signs, a robot hero, gems, forecast on floating islands |
+| ![](docs/previews/design_comic.gif) | ![](docs/previews/design_mech.gif) | ![](docs/previews/design_platformer.gif) |
+
 
 | | | |
 |---|---|---|
@@ -32,7 +38,7 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
   ![Idle cards](docs/previews/idle_cards.gif)
 - **Weather page:** Croatian day names (PO, UT, SR, ČE, PE, SU, NE). Every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
-- **Themes:** `neon`, `retro_platformer`, `crimson_desert`, `christmas`, `halloween`, `synthwave`, `steel`, and `auto`. `auto` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6.
+- **Themes for every design:** `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, or the design's `original` look. `seasonal (auto)` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6. Design and theme can each rotate hourly, every 6 hours or daily.
 - **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
 - **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
 
@@ -66,16 +72,20 @@ The script needs only Pillow, which already ships with Home Assistant. One rende
 
 ## Settings
 
-| Helper | What it does |
+Four independent dropdowns:
+
+| Helper | What it controls |
 |---|---|
-| `input_select.pixoo_design` | `classic` (tiles), `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `rotate daily`, `rotate hourly`, or `rotate daily (art only)`. |
-| `input_select.pixoo_theme` | Colour theme for the classic design. Changes apply within a second. |
-| `input_select.pixoo_colors` | `vivid` (default), `extra vivid`, `soft` or `off`. Pick what looks best at your brightness. |
+| `input_select.pixoo_design` | **What it looks like**: layout and art style. `classic`, `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `comic`, `mech`, `platformer`, `rotate`, `rotate (no classic)`. |
+| `input_select.pixoo_theme` | **How it's coloured**, for every design. `original` (the design's own colours), `seasonal (auto)`, `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, `rotate`. |
+| `input_select.pixoo_rotation` | **How often** design and/or theme change when set to `rotate`: `daily`, `every 6 hours`, `hourly`. |
+| `input_select.pixoo_colors` | **Panel calibration**, not a style: `vivid` (default), `extra vivid`, `soft`, `off`. |
 
-You can also change these constants at the top of `pixoo_render.py`:
+On the classic design, themes are hand-tuned palettes. On every other design, a theme recolours the background, frames and artwork towards its palette and adds its decorations (snow, string lights, bats, embers…). Text, numbers and colour-coded indicators (AQI colours, status lamps, health hearts) are never recoloured, so their meaning stays intact.
 
-- `FRAMES` / `FRAME_MS`: animation length and speed.
-- `NIGHT_DIM`: global dimming.
+![Themes on every design](docs/previews/themes_on_every_design.png)
+
+Constants at the top of `pixoo_render.py`: `FRAMES` / `FRAME_MS` (animation length and speed), `NIGHT_DIM` (global dimming), and `RAIN_PROB` / `RAIN_MM` (umbrella threshold).
 
 ### Expected data
 
