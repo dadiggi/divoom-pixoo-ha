@@ -9,7 +9,7 @@ which the divoom_pixoo integration shows with `page_type: gif`.
 
 Only needs Pillow, which ships with Home Assistant.
 """
-import base64, json, math, os, sys, traceback
+import base64, datetime, json, math, os, sys, traceback
 from PIL import Image, ImageEnhance
 
 OUT_DIR = os.environ.get("PIXOO_OUT", "/config/www/pixoo")
@@ -246,34 +246,40 @@ class Canvas:
         return max(0, w - 1)
 
     def text(self, x, y, s, color, font="pico", align="left", shadow=True,
-             grad=None, glint=None):
-        """grad: list of per-row shade factors. glint: diagonal highlight position."""
+             grad=None, glint=None, outline=None, colfn=None, shadow_c=None):
+        """grad: per-row shade factors. glint: diagonal highlight position.
+        outline: colour of a 1-px outline (for busy art backgrounds) - replaces the drop shadow.
+        colfn(x, y, row) -> colour: per-pixel colouring (e.g. gold shimmer)."""
         w = self.text_width(s, font)
         if align == "center": x -= w // 2
         elif align == "right": x -= w
         s = str(s)
-        layers = ([(1, True)] if shadow else []) + [(0, False)]
-        for off, is_shadow in layers:
+        if outline is not None:
+            layers = [((dx, dy), outline) for dx in (-1, 0, 1) for dy in (-1, 0, 1) if dx or dy]
+        elif shadow:
+            layers = [((1, 1), shadow_c or SHADOW)]
+        else:
+            layers = []
+        layers.append(((0, 0), None))
+        for (ox, oy), lc in layers:
             cx = x
             for ch in s:
                 gw, gh, m = self.glyph(font, ch)
-                for (ax, ay) in ACCENTS.get(ch.upper(), (None, []))[1]:
-                    if is_shadow:
-                        self.px(cx + ax + 1, y + ay + 1, SHADOW)
-                    else:
-                        self.px(cx + ax, y + ay, color)
-                for j in range(gh):
-                    for i in range(gw):
-                        if m[j][i]:
-                            if is_shadow:
-                                self.px(cx + i + 1, y + j + 1, SHADOW)
-                            else:
-                                c = color
-                                if grad: c = shade(color, grad[min(j, len(grad) - 1)])
-                                if glint is not None:
-                                    d = abs((cx + i - x) - j * 0.6 - glint)
-                                    if d < 2.0: c = shade(c, 0.75 - d * 0.3)
-                                self.px(cx + i, y + j, c)
+                pts = [(ax, ay) for (ax, ay) in ACCENTS.get(ch.upper(), (None, []))[1]]
+                pts += [(i, j) for j in range(gh) for i in range(gw) if m[j][i]]
+                for (i, j) in pts:
+                    if lc is not None:
+                        self.px(cx + i + ox, y + j + oy, lc)
+                        continue
+                    c = color
+                    if colfn is not None:
+                        c = colfn(cx + i, y + j, max(0, j))
+                    elif grad:
+                        c = shade(color, grad[min(max(j, 0), len(grad) - 1)])
+                    if glint is not None:
+                        dd = abs((cx + i - x) - j * 0.6 - glint)
+                        if dd < 2.0: c = shade(c, 0.75 - dd * 0.3)
+                    self.px(cx + i, y + j, c)
                 cx += gw + 1
         return w
 
@@ -1164,6 +1170,1334 @@ def render_weather(d, f):
     return cv.img
 
 
+# ============================================================================
+# ART DESIGNS  (mondrian, van_gogh, hokusai, klimt)
+# Same data and behaviour as the classic design, each with its own layout and drawing style.
+# ============================================================================
+def temp_str(v):
+    if v is None:
+        return None
+    s = ("%d" % round(abs(v))) if (v < 0 or v >= 100) else ("%.1f" % v)
+    return ("-" if v < 0 else "") + s + "°"
+
+
+def appl_list(d):
+    """Washer, dryer, printer as dicts: kind, k (state key), label, pct."""
+    out = []
+    for kind, key, agek in (("washer", "wm", "wm_age"), ("dryer", "td", "td_age")):
+        label, k = APPLIANCE_STATES.get(d.get(key), ("--", "off"))
+        if k in ("idle", "off"):
+            label = age_text(d.get(agek)) or ("IDLE" if k == "idle" else "OFF")
+        out.append({"kind": kind, "k": k, "label": label, "pct": None})
+    k = PRINTER_MAP.get(str(d.get("pr", "")).lower(), "off")
+    pct = num(d.get("pr_pct"))
+    mins = int(num(d.get("pr_left")) or 0)
+    left = ("%dh%02d" % (mins // 60, mins % 60)) if mins >= 60 else ("%dm" % mins)
+    if k in ("idle", "off"):
+        label = age_text(d.get("pr_age")) or ("IDLE" if k == "idle" else "OFF")
+    else:
+        label = {"run": left, "pause": "PAUS", "prep": "PREP", "done": "DONE", "err": "ERR"}[k]
+    out.append({"kind": "printer", "k": k, "label": label, "pct": pct})
+    return out
+
+
+def show_sun_card(d, variant):
+    try:
+        all_idle = all(a["k"] in ("idle", "off") for a in appl_list(d))
+    except Exception:
+        all_idle = False
+    return all_idle or variant == 1
+
+
+def today_and_next(d):
+    fc = d.get("forecast") or []
+    fc = [x for x in fc if isinstance(x, dict)] if isinstance(fc, list) else []
+    today = None
+    if fc and str(fc[0].get("date")) == str(d.get("today")):
+        today, fc = fc[0], fc[1:]
+    return today, fc[:4]
+
+
+def cur_temp(d):
+    v = num(d.get("t_out"))
+    if v is None:
+        w = d.get("weather") if isinstance(d.get("weather"), dict) else {}
+        v = num(w.get("temperature"))
+    return v
+
+
+def cur_cond(d):
+    w = d.get("weather") if isinstance(d.get("weather"), dict) else {}
+    c = str(w.get("condition") or "").lower()
+    if str(d.get("sun", "")) == "below_horizon" and c == "sunny":
+        c = "clear-night"
+    return c
+
+
+def cond_group(c):
+    c = str(c or "").lower()
+    if c in ("sunny",): return "sun"
+    if c == "clear-night": return "night"
+    if c == "partlycloudy": return "partly"
+    if c in ("cloudy",): return "cloud"
+    if c in ("rainy", "pouring"): return "rain"
+    if c in ("snowy", "snowy-rainy", "hail"): return "snow"
+    if c in ("lightning", "lightning-rainy"): return "storm"
+    if c == "fog": return "fog"
+    if c in ("windy", "windy-variant"): return "wind"
+    return "unknown"
+
+
+def lum(c):
+    return 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
+
+
+def ink_for(bg, dark=(15, 15, 18), light=(245, 242, 235)):
+    return dark if lum(bg) > 120 else light
+
+
+def disc(cv, cx, cy, r, colfn):
+    for j in range(int(cy - r) - 1, int(cy + r) + 2):
+        for i in range(int(cx - r) - 1, int(cx + r) + 2):
+            dd = math.hypot(i + 0.5 - cx, j + 0.5 - cy)
+            if dd <= r:
+                cv.px(i, j, colfn(dd / max(r, 0.01), i, j))
+
+
+# ----------------------------------------------------------------------------
+# MONDRIAN  - De Stijl grid: black lines, white & primary cells, travelling colour blips
+# ----------------------------------------------------------------------------
+M_W, M_K = (232, 228, 214), (12, 12, 14)
+M_R, M_B, M_Y, M_G = (214, 36, 30), (28, 72, 178), (250, 204, 22), (190, 188, 180)
+M_HOUSE = ["...#...", "..###..", ".#####.", "#######", ".#...#.", ".#.#.#.", ".#.#.#."]
+M_TREE = ["..###..", ".#####.", "#######", ".#####.", "..###..", "...#...", "..###.."]
+M_DROP = ["..#..", ".###.", "#####", "#####", ".###."]
+
+
+def m_cell(cv, x, y, w, h, c):
+    cv.rect(x, y, w, h, c)
+
+
+def m_blips(cv, f, hlines, vlines):
+    """Mondrian's 'boogie-woogie': little colour squares running along the black lines."""
+    cols = [M_Y, M_R, M_B, M_Y]
+    for n, (y, x0, x1) in enumerate(hlines):
+        L = x1 - x0
+        for k in range(2):
+            pos = x0 + int((f * L / FRAMES * (1 if n % 2 else -1) + k * L / 2 + n * 7)) % L
+            c = cols[(n + k) % 4]
+            for dx in (0, 1):
+                for dy in (0, 1):
+                    if cv.get(pos + dx, y + dy) == M_K:
+                        cv.px(pos + dx, y + dy, c)
+    for n, (x, y0, y1) in enumerate(vlines):
+        L = y1 - y0
+        pos = y0 + int(f * L / FRAMES + n * 5) % L
+        c = cols[(n + 2) % 4]
+        for dx in (0, 1):
+            for dy in (0, 1):
+                if cv.get(x + dx, pos + dy) == M_K:
+                    cv.px(x + dx, pos + dy, c)
+
+
+def m_sprite(cv, x, y, rows, c):
+    for j, r in enumerate(rows):
+        for i, ch in enumerate(r):
+            if ch == "#":
+                cv.px(x + i, y + j, c)
+
+
+def m_appliance(cv, x, y, w, h, a, f):
+    k = a["k"]
+    fill = {"run": {"washer": M_B, "dryer": M_R, "printer": M_W}[a["kind"]], "done": M_Y,
+            "err": M_R if (f // 4) % 2 == 0 else M_W, "pause": M_G, "prep": M_G}.get(k, M_W)
+    m_cell(cv, x, y, w, h, fill)
+    if a["kind"] == "printer" and k in ("run", "pause") and a["pct"] is not None:
+        ph = round(h * max(0, min(100, a["pct"])) / 100)            # yellow fill = progress
+        m_cell(cv, x, y + h - ph, w, ph, M_Y)
+    ink = ink_for(fill) if k not in ("idle", "off") else M_K
+    if k in ("idle", "off"):
+        ink = (70, 70, 74)
+    ix, iy = x + (w - 11) // 2, y + 2
+    # geometric icons
+    for i in range(11):
+        cv.px(ix + i, iy, ink); cv.px(ix + i, iy + 10, ink)
+        cv.px(ix, iy + i, ink); cv.px(ix + 10, iy + i, ink)
+    ang = 2 * math.pi * f / FRAMES
+    if a["kind"] in ("washer", "dryer"):
+        cv.rect(ix + 1, iy + 2, 9, 1, ink)
+        for n in range(16):
+            t = 2 * math.pi * n / 16
+            cv.px(round(ix + 5 + 3 * math.cos(t)), round(iy + 6 + 3 * math.sin(t)), ink)
+        if k == "run":
+            for q in (0, math.pi):
+                cv.px(round(ix + 5 + 1.6 * math.cos(ang * 2 + q)), round(iy + 6 + 1.6 * math.sin(ang * 2 + q)), ink)
+        if a["kind"] == "dryer":
+            cv.px(ix + 2, iy + 1, ink); cv.px(ix + 4, iy + 1, ink)
+    else:
+        cv.rect(ix + 1, iy + 3, 9, 1, ink)                          # gantry
+        hx = ix + 3 + (round(2 + 2 * math.sin(ang)) if k == "run" else 2)
+        cv.rect(hx, iy + 4, 3, 2, ink)
+        cv.rect(ix + 3, iy + 8, 5, 2, ink)                          # print
+    cv.text(x + w // 2, y + h - 7, a["label"], ink, align="center", shadow=False)
+
+
+def m_sun_cells(cv, d, f, x0=0, y0=41, h=23):
+    for n, (x, w, rising, sky, sunc, t) in enumerate([
+            (x0, 31, True, M_Y, M_R, d.get("sunrise")), (x0 + 33, 31, False, M_R, M_Y, d.get("sunset"))]):
+        m_cell(cv, x, y0, w, 14, sky)
+        m_cell(cv, x, y0 + 16, w, h - 16, M_W)
+        prog = f / (FRAMES - 1)
+        sy = (y0 + 11 - 7 * prog) if rising else (y0 + 4 + 7 * prog)
+        sx = x + w // 2 - 3
+        for j in range(6):
+            if y0 <= sy + j < y0 + 14:
+                cv.rect(sx, int(sy) + j, 6, 1, sunc)
+        cv.rect(x, y0 + 14, w, 2, M_K)                              # horizon line
+        cv.text(x + w // 2, y0 + h - 6, str(t or "--:--"), M_K, "pico", "center", shadow=False)
+
+
+def render_dashboard_mondrian(d, f, variant=0):
+    cv = Canvas()
+    cv.rect(0, 0, 64, 64, M_K)
+    # --- indoor (white) / outdoor (colour by temperature) ---
+    tin, tout = num(d.get("t_in")), num(d.get("t_out"))
+    out_bg = M_W if tout is None else (M_B if tout < 10 else M_Y if tout <= 25 else M_R)
+    for x, bg, v, h, icon in [(0, M_W, tin, d.get("h_in"), M_HOUSE), (33, out_bg, tout, d.get("h_out"), M_TREE)]:
+        m_cell(cv, x, 0, 31, 21, bg)
+        ink = ink_for(bg)
+        m_sprite(cv, x + 2, 2, icon, ink)
+        hv = num(h)
+        if hv is not None:
+            cv.text(x + 29, 3, "%d%%" % round(hv), ink, align="right", shadow=False)
+            m_sprite(cv, x + 29 - cv.text_width("%d%%" % round(hv)) - 6, 3, M_DROP,
+                     M_B if bg != M_B else M_W)
+        s = temp_str(v)
+        if s:
+            cv.text(x + 15, 9, s, ink, "big", "center", shadow=False)
+    # --- AQI: value + stepped blocks ---
+    m_cell(cv, 0, 23, 45, 16, M_W)
+    a = num(d.get("aqi"))
+    cv.text(3, 25, "AQI", M_K, shadow=False)
+    if a is not None:
+        cv.text(3, 31, str(int(round(a))), M_K, "gicko", shadow=False)
+        cat = 0 if a < 50 else 1 if a < 101 else 2 if a < 151 else 3 if a < 201 else 4
+        for i in range(5):
+            bh = 3 + i * 2
+            bx, by = 24 + i * 4, 37 - bh
+            c = aqi_color(i * 50 + 25)
+            if i < cat:
+                cv.rect(bx, by, 3, bh, c)
+            elif i == cat:
+                cv.rect(bx, by, 3, bh, c if (f // 4) % 4 else shade(c, 0.4))
+                cv.rect(bx, by - 2, 3, 1, M_K)                      # pointer tick
+            else:
+                cv.rect(bx, by, 3, bh, M_G)
+    # --- umbrella cell ---
+    out = rain_outlook(d)
+    ux, uy = 47, 23
+    if out is None:
+        m_cell(cv, ux, uy, 17, 16, M_W)
+    elif out[0]:
+        m_cell(cv, ux, uy, 17, 16, M_B)
+        canopy = ["....###....", "..#######..", ".#########.", "###########"]
+        m_sprite(cv, ux + 3, uy + 3, canopy, M_W)
+        cv.rect(ux + 8, uy + 7, 1, 5, M_W); cv.rect(ux + 6, uy + 11, 2, 1, M_W)
+        for n, cx in enumerate((ux + 2, ux + 14, ux + 4, ux + 12)):
+            yy = uy + 7 + (f + n * 4) % 8
+            cv.rect(cx, yy, 1, 2, M_W)
+    else:
+        m_cell(cv, ux, uy, 17, 16, M_Y)
+        sz = 6 + (1 if (f // 4) % 2 else 0)
+        cv.rect(ux + 8 - sz // 2, uy + 8 - sz // 2, sz, sz, M_R)
+    # --- bottom row ---
+    if show_sun_card(d, variant):
+        m_sun_cells(cv, d, f)
+        vl = [(31, 41, 63)]
+    else:
+        for x, a in zip((0, 22, 44), appl_list(d)):
+            m_appliance(cv, x, 41, 20, 23, a, f)
+        vl = [(20, 41, 63), (42, 41, 63)]
+    m_blips(cv, f, [(21, 0, 64), (39, 0, 64)], [(31, 0, 21), (45, 23, 39)] + vl)
+    return cv.img
+
+
+def m_weather_icon(cv, x, y, w, h, grp, f):
+    """Geometric weather in a Mondrian cell (cell colour carries the weather too)."""
+    bg = {"sun": M_Y, "night": M_B, "partly": M_Y, "cloud": M_G, "rain": M_B, "snow": M_B,
+          "storm": (60, 60, 66), "fog": M_W, "wind": M_W}.get(grp, M_W)
+    m_cell(cv, x, y, w, h, bg)
+    cx, cy = x + w // 2, y + h // 2
+    drift = round(2 * math.sin(2 * math.pi * f / FRAMES))
+    rot = (f // 4) % 2
+
+    def cloud_blocks(ox, oy, c=M_W):
+        for (bx, by, bw, bh) in [(2, 3, 14, 5), (5, 0, 7, 4), (0, 5, 18, 4)]:
+            cv.rect(ox + bx - 1, oy + by - 1, bw + 2, bh + 2, M_K)
+        for (bx, by, bw, bh) in [(2, 3, 14, 5), (5, 0, 7, 4), (0, 5, 18, 4)]:
+            cv.rect(ox + bx, oy + by, bw, bh, c)
+
+    if grp in ("sun", "partly"):
+        sx, sy = (cx, cy) if grp == "sun" else (cx - 5, cy - 5)
+        cv.rect(sx - 4, sy - 4, 8, 8, M_R)
+        rays = [(0, -8), (0, 6), (-8, 0), (6, 0)] if rot else [(-7, -7), (5, -7), (-7, 5), (5, 5)]
+        for (dx, dy) in rays:
+            cv.rect(sx + dx, sy + dy, 2, 2, M_K)
+        if grp == "partly":
+            cloud_blocks(cx - 7 + drift, cy + 1)
+    elif grp == "night":
+        for j in range(-6, 7):
+            for i in range(-6, 7):
+                if i * i + j * j <= 36 and (i - 3) ** 2 + (j + 2) ** 2 > 25:
+                    cv.px(cx - 2 + i, cy + j, M_Y)
+        for n, (sx, sy) in enumerate([(x + 3, y + 3), (x + w - 5, y + 5), (x + w - 7, y + h - 5)]):
+            if (f // 4 + n) % 3:
+                cv.rect(sx, sy, 2, 2, M_W)
+    elif grp in ("cloud", "rain", "snow", "storm"):
+        cloud_blocks(cx - 9 + drift, y + 3, M_W if grp != "storm" else M_G)
+        if grp == "cloud":
+            cloud_blocks(cx - 6 - drift, y + 12)
+        elif grp == "rain":
+            for n in range(5):
+                cv.rect(x + 4 + n * 4, y + 15 + (f + n * 3) % 7, 1, 2, M_W)
+        elif grp == "snow":
+            for n in range(4):
+                cv.rect(x + 4 + n * 5, y + 15 + (f // 2 + n * 2) % 7, 2, 2, M_W)
+        else:
+            if f % 8 < 3:
+                for j, dx in enumerate([3, 2, 1, 2, 3, 2, 1]):
+                    cv.rect(cx - 2 + dx, y + 14 + j, 2, 1, M_Y)
+    elif grp == "fog":
+        for n in range(4):
+            off = round(3 * math.sin(2 * math.pi * f / FRAMES + n))
+            cv.rect(x + 3 + off, y + 4 + n * 5, w - 8, 2, M_G)
+    elif grp == "wind":
+        for n in range(3):
+            L = w - 6 - n * 4
+            off = (f * 2 + n * 5) % (w - 4)
+            cv.rect(x + 2, y + 5 + n * 6, L, 2, M_B)
+            cv.rect(x + 2 + off % L, y + 5 + n * 6, 2, 2, M_R)
+    else:
+        cv.rect(cx - 1, cy - 6, 2, 8, M_K); cv.rect(cx - 1, cy + 4, 2, 2, M_K)
+
+
+def m_small_icon(cv, x, y, grp, f):
+    """10x4 colour block with a tiny moving glyph (the colour alone also tells the weather)."""
+    bg = {"sun": M_Y, "night": M_B, "partly": M_Y, "cloud": M_G, "rain": M_B, "snow": M_B,
+          "storm": (60, 60, 66), "fog": M_W, "wind": M_W}.get(grp, M_W)
+    cv.rect(x - 1, y - 1, 12, 6, M_K)
+    cv.rect(x, y, 10, 4, bg)
+    t = (f // 4) % 2
+    if grp == "sun":
+        cv.rect(x + 4 - t, y + 1 - t, 2 + 2 * t, 2 + 2 * t, M_R)
+    elif grp == "partly":
+        cv.rect(x + 1, y + 1, 2, 2, M_R); cv.rect(x + 4 + t, y + 2, 5, 2, M_W)
+    elif grp == "cloud":
+        cv.rect(x + 2 + t, y + 1, 6, 2, M_W)
+    elif grp in ("rain", "snow"):
+        for n in range(4):
+            cv.px(x + 1 + n * 2 + (n % 2), y + (f // 2 + n) % 4, M_W)
+    elif grp == "storm":
+        if f % 8 < 4:
+            for j, dx in enumerate([4, 3, 5, 4]):
+                cv.px(x + dx, y + j, M_Y)
+    elif grp == "night":
+        cv.rect(x + 3, y, 3, 4, M_Y); cv.rect(x + 5, y, 1, 3, M_B)
+        if t: cv.px(x + 8, y + 1, M_W)
+    elif grp in ("fog", "wind"):
+        for n in range(2):
+            cv.rect(x + 1 + ((f // 4 + n) % 2), y + n * 2, 7, 1, M_G if grp == "fog" else M_B)
+
+
+def render_weather_mondrian(d, f):
+    cv = Canvas()
+    cv.rect(0, 0, 64, 64, M_K)
+    m_cell(cv, 0, 0, 17, 11, M_W)
+    cv.text(8, 4, str(d.get("date", "")), M_K, align="center", shadow=False)
+    m_cell(cv, 19, 0, 29, 11, M_W)
+    cv.text(33, 3, str(d.get("time", "")), M_K, "gicko", "center", shadow=False)
+    m_cell(cv, 50, 0, 14, 11, M_R)
+    cv.text(57, 4, str(d.get("dow", "")), M_W, align="center", shadow=False)
+    m_weather_icon(cv, 0, 13, 28, 24, cond_group(cur_cond(d)), f)
+    m_cell(cv, 30, 13, 34, 24, M_W)
+    s = temp_str(cur_temp(d))
+    if s:
+        cv.text(47, 15, s, M_K, "big", "center", shadow=False)
+    today, nxt = today_and_next(d)
+    if today:
+        hi, lo = num(today.get("hi")), num(today.get("lo"))
+        if hi is not None:
+            tri(cv, 33, 30, UP[0], M_R); cv.text(39, 29, "%d" % round(hi), M_K, shadow=False)
+        if lo is not None:
+            tri(cv, 49, 30, DOWN[0], M_B); cv.text(55, 29, "%d" % round(lo), M_K, shadow=False)
+    xs = [(0, 15), (17, 14), (33, 14), (49, 15)]
+    for n, (x, w) in enumerate(xs):
+        m_cell(cv, x, 39, w, 25, M_W)
+        if n >= len(nxt):
+            continue
+        day = nxt[n]
+        weekend = int(num(day.get("wd")) or 0) in (6, 7)
+        cv.text(x + w // 2, 41, str(day.get("d", ""))[:2], M_R if weekend else M_K, align="center", shadow=False)
+        m_small_icon(cv, x + (w - 10) // 2, 47, cond_group(day.get("c")), (f + n * 3) % FRAMES)
+        hi, lo = num(day.get("hi")), num(day.get("lo"))
+        if hi is not None:
+            cv.text(x + w // 2, 53, "%d" % round(hi), M_K, align="center", shadow=False)
+        if lo is not None:
+            cv.text(x + w // 2, 59, "%d" % round(lo), M_B, align="center", shadow=False)
+    m_blips(cv, f, [(11, 0, 64), (37, 0, 64)], [(17, 0, 11), (48, 0, 11), (28, 13, 37), (15, 39, 64), (31, 39, 64), (47, 39, 64)])
+    return cv.img
+
+
+# ----------------------------------------------------------------------------
+# VAN GOGH  - swirling brushstroke sky, star orbs, wind-swept golden field
+# ----------------------------------------------------------------------------
+VG_SKY = [(14, 28, 88), (28, 62, 150), (64, 118, 200), (150, 190, 232), (225, 230, 200)]
+VG_FIELD = [(120, 95, 25), (190, 140, 30), (232, 182, 50), (250, 220, 110), (95, 120, 45)]
+VG_INK = (10, 16, 48)
+VG_YEL = (255, 216, 72)
+VG_CREAM = (245, 232, 190)
+
+
+def _hash(x, y, s=0):
+    return ((x * 73856093) ^ (y * 19349663) ^ (s * 83492791)) & 0xffff
+
+
+def vg_sky(cv, x0, y0, w, h, f, vortices=()):
+    ph = 2 * math.pi * f / FRAMES
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            v = math.sin(0.5 * x + 2.4 * math.sin(0.21 * y + 0.7) - ph)
+            for (cx, cy, R) in vortices:
+                r = math.hypot(x - cx, y - cy)
+                if r < R:
+                    t = math.atan2(y - cy, x - cx)
+                    k = (1 - r / R) ** 0.7
+                    v = v * (1 - k) + math.sin(2 * t + 0.95 * r - 2 * ph) * k
+            n = ((_hash(x // 2, y) % 100) / 100 - 0.5) * 0.55        # brush-dash texture
+            lvl = int((v + n + 1.2) / 2.4 * 4)
+            cv.px(x, y, VG_SKY[max(0, min(3, lvl))])
+
+
+def vg_field(cv, x0, y0, w, h, f):
+    ph = 2 * math.pi * f / FRAMES
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            sway = 1.6 * math.sin(ph + y * 0.45)
+            u = x + sway + (y - y0) * 0.6                             # diagonal wheat strokes
+            v = math.sin(u * 1.1) + ((_hash(int(u) // 2, y, 3) % 100) / 100 - 0.5) * 0.9
+            lvl = int((v + 1.5) / 3 * 4)
+            c = VG_FIELD[max(0, min(3, lvl))]
+            if _hash(x, y, 7) % 23 == 0:
+                c = VG_FIELD[4]                                       # green flecks
+            cv.px(x, y, c)
+
+
+def vg_calm(cv, x, y, w, h, k=0.72, tint=(12, 20, 58)):
+    """Darkened 'calm zone' behind data so it stays readable on the busy painting."""
+    for j in range(y, y + h):
+        for i in range(x, x + w):
+            if (i in (x, x + w - 1)) and (j in (y, y + h - 1)):
+                continue
+            cv.px(i, j, mix(cv.get(i, j), tint, k))
+
+
+def vg_orb(cv, cx, cy, r, core, ring, f, rings=3):
+    """Van Gogh star/sun: bright core with concentric, outward-flowing halo strokes."""
+    ph = f / FRAMES * 2
+    R = r + rings * 1.4
+    for j in range(int(cy - R) - 1, int(cy + R) + 2):
+        for i in range(int(cx - R) - 1, int(cx + R) + 2):
+            d0 = math.hypot(i + 0.5 - cx, j + 0.5 - cy)
+            if d0 <= r:
+                cv.px(i, j, mix((255, 252, 220), core, (d0 / r) ** 1.5))
+            elif d0 <= R:
+                band = (d0 - r - ph) % 2.8
+                if band < 1.2:
+                    a = 1 - (d0 - r) / (R - r)
+                    cv.px(i, j, mix(cv.get(i, j), ring, 0.35 + 0.6 * a))
+
+
+def vg_temp(cv, cx, y, v, warm=True):
+    s = temp_str(v)
+    if not s:
+        return
+    top, bot = ((255, 248, 190), (240, 140, 25)) if warm else ((235, 245, 255), (90, 150, 230))
+    cv.text(cx, y, s, VG_YEL, "big", "center", outline=VG_INK,
+            colfn=lambda x, yy, j: mix(top, bot, j / 10))
+
+
+VG_HOUSE = ["...r...", "..rrr..", ".rrrrr.", "rrrrrrr", ".ccccc.", ".cyccc.", ".cyccc."]
+VG_TREE = ["..ggg..", ".gGggg.", "gggGggg", ".ggggg.", "..ggg..", "...b...", "...b..."]
+
+
+def vg_sprite(cv, x, y, rows, pal):
+    for j, r in enumerate(rows):
+        for i, ch in enumerate(r):
+            if ch in pal:
+                for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+                    if cv.get(x + i + dx, y + j + dy) != pal[ch]:
+                        pass
+    for j, r in enumerate(rows):
+        for i, ch in enumerate(r):
+            if ch in pal:
+                cv.px(x + i, y + j, pal[ch])
+
+
+def vg_appliance(cv, x, y, a, f):
+    """Painterly appliance: cream body, dark outline, swirling drum."""
+    k, kind = a["k"], a["kind"]
+    on = k == "run"
+    body = VG_CREAM if k not in ("idle", "off") else (150, 145, 125)
+    cv.rect(x - 1, y - 1, 15, 15, VG_INK)
+    cv.rect(x, y, 13, 13, body)
+    ang = 2 * math.pi * f / FRAMES
+    if kind in ("washer", "dryer"):
+        cv.rect(x, y + 2, 13, 1, VG_INK)
+        for j in range(13):
+            for i in range(13):
+                d0 = math.hypot(i - 6, j - 7.5)
+                if d0 <= 4.4:
+                    if d0 > 3.3:
+                        cv.px(x + i, y + j, VG_INK)
+                    else:
+                        t = math.atan2(j - 7.5, i - 6)
+                        sw = math.sin(2 * t + 1.6 * d0 - (3 * ang if on else 0))
+                        if kind == "washer":
+                            c = [(30, 70, 170), (80, 150, 230), (200, 225, 250)][int((sw + 1) * 1.49)]
+                        else:
+                            c = [(200, 80, 20), (250, 160, 40), (255, 235, 140)][int((sw + 1) * 1.49)]
+                        if not on:
+                            c = mix(c, (60, 60, 70), 0.75)
+                        cv.px(x + i, y + j, c)
+        cv.px(x + 10, y + 1, (60, 230, 120) if on and (f // 4) % 2 else VG_INK)
+    else:
+        cv.rect(x + 2, y + 3, 9, 8, VG_INK)
+        win = {"run": (40, 120, 90), "pause": (150, 110, 20), "done": (40, 140, 80), "err": (170, 30, 30)}.get(k, (40, 45, 70))
+        cv.rect(x + 3, y + 4, 7, 6, win)
+        hx = x + 4 + (round(2 + 2 * math.sin(ang)) if on else 2)
+        cv.rect(x + 3, y + 5, 7, 1, mix(win, VG_CREAM, 0.4))
+        cv.rect(hx - 1, y + 5, 3, 1, VG_CREAM)
+        cv.rect(x + 5, y + 8, 3, 2, VG_YEL if k != "off" else (110, 105, 90))
+
+
+def vg_status_color(k):
+    return {"run": (120, 230, 255), "done": (140, 255, 140), "pause": VG_YEL, "err": (255, 90, 70),
+            "prep": (120, 230, 255)}.get(k, (190, 180, 150))
+
+
+def vg_sun_card(cv, d, f, y0=41):
+    for x, w, rising, t in [(0, 32, True, d.get("sunrise")), (32, 32, False, d.get("sunset"))]:
+        ph = 2 * math.pi * f / FRAMES
+        top, hz = ((40, 110, 170), (250, 200, 90)) if rising else ((70, 30, 90), (250, 100, 40))
+        for j in range(y0, y0 + 14):
+            for i in range(x, x + w):
+                v = math.sin(0.6 * i + 1.8 * math.sin(0.4 * j) - ph)
+                tt = (j - y0) / 13
+                c = mix(top, hz, tt ** 1.3)
+                cv.px(i, j, shade(c, 0.12 * v))
+        prog = f / (FRAMES - 1)
+        sy = (y0 + 13 - 6 * prog) if rising else (y0 + 7 + 6 * prog)
+        vg_orb(cv, x + w // 2, sy, 3, (255, 190, 40) if rising else (255, 120, 30),
+               (255, 230, 120) if rising else (255, 150, 80), f, rings=2)
+        vg_field(cv, x, y0 + 14, w, 23 - 14, f)
+        cv.text(x + w // 2, y0 + 16, str(t or "--:--"), VG_YEL if rising else (255, 160, 90),
+                "gicko", "center", outline=VG_INK)
+    cv.rect(31, y0, 1, 23, VG_INK)
+
+
+def render_dashboard_van_gogh(d, f, variant=0):
+    cv = Canvas()
+    vg_sky(cv, 0, 0, 64, 41, f, vortices=[(31, 23, 15), (58, 6, 7)])
+    for (sx, sy, ph) in [(3, 22, 0), (61, 22, 3), (25, 38, 6)]:
+        vg_orb(cv, sx, sy, 1, (255, 230, 120), (255, 240, 160), (f + ph) % FRAMES, rings=1)
+    # temperatures
+    for x, v, h, icon, warm in [(1, num(d.get("t_in")), d.get("h_in"), "house", True),
+                                (33, num(d.get("t_out")), d.get("h_out"), "tree", False)]:
+        vg_calm(cv, x, 1, 30, 20)
+        if icon == "house":
+            vg_sprite(cv, x + 2, 2, VG_HOUSE, {"r": (235, 110, 40), "c": VG_CREAM, "y": (255, 200, 40)})
+        else:
+            vg_sprite(cv, x + 2, 2, VG_TREE, {"g": (40, 130, 70), "G": (120, 200, 90), "b": (120, 80, 40)})
+        hv = num(h)
+        if hv is not None:
+            cv.text(x + 28, 3, "%d%%" % round(hv), (150, 210, 255), align="right", outline=VG_INK)
+        vg_temp(cv, x + 15, 9, v, warm)
+    # AQI orb + value, umbrella
+    a = num(d.get("aqi"))
+    if a is not None:
+        col = aqi_color(a)
+        vg_orb(cv, 7, 31, 3, col, mix(col, (255, 255, 255), 0.3), f, rings=2)
+        cv.text(15, 28, str(int(round(a))), col, "gicko", outline=VG_INK,
+                colfn=lambda x, y, j: mix(mix(col, (255, 255, 255), 0.5), col, j / 5))
+        cv.text(15, 35, "AQI", VG_CREAM, outline=VG_INK)
+    out = rain_outlook(d)
+    if out is not None:
+        ux, uy = 44, 25
+        vg_calm(cv, ux - 3, uy - 2, 19, 15, k=0.6)
+        if out[0]:
+            canopy = ["....####....", "..########..", ".##########.", "############"]
+            for j, r in enumerate(canopy):
+                for i, ch in enumerate(r):
+                    if ch == "#":
+                        edge = i == 0 or i == len(r) - 1 or r[i - 1] == "." or r[i + 1] == "." or j == 0
+                        cv.px(ux + i, uy + j, VG_INK if edge else
+                              [(255, 200, 50), (240, 140, 30)][((i + j) // 2) % 2])
+            cv.rect(ux + 6, uy + 4, 1, 6, VG_CREAM); cv.rect(ux + 4, uy + 9, 2, 1, VG_CREAM)
+            for n, dx in enumerate((-2, 13, 1, 10)):
+                yy = uy + 1 + (f + n * 4) % 11
+                cv.px(ux + dx, yy, (210, 235, 255)); cv.px(ux + dx, yy - 1, (110, 170, 240))
+        else:
+            vg_orb(cv, ux + 6, uy + 6, 2, (255, 200, 40), (255, 230, 120), f, rings=2)
+    # bottom
+    if show_sun_card(d, variant):
+        vg_sun_card(cv, d, f)
+    else:
+        vg_field(cv, 0, 41, 64, 23, f)
+        for x, a2 in zip((3, 25, 47), appl_list(d)):
+            vg_calm(cv, x - 2, 42, 19, 21, k=0.6, tint=(40, 25, 10))
+            vg_appliance(cv, x + 1, 43, a2, f)
+            cv.text(x + 7, 57, a2["label"], vg_status_color(a2["k"]), align="center", outline=VG_INK)
+    return cv.img
+
+
+def vg_icon(cv, x, y, S, grp, f):
+    k = S / 20.0
+    ph = 2 * math.pi * f / FRAMES
+    drift = round((2 if S > 12 else 1) * math.sin(ph))
+
+    def swirl_cloud(sc, ox, oy, dark=False):
+        m = _cloud_mask(S, sc, ox, oy)
+        for (i, j) in m:
+            if (i + 1, j) not in m or (i, j + 1) not in m or (i - 1, j) not in m or (i, j - 1) not in m:
+                cv.px(x + i, y + j, VG_INK)
+            else:
+                v = math.sin(0.9 * i + 1.3 * math.sin(0.7 * j) - ph * 2)
+                base = [(200, 215, 235), (240, 245, 250), (160, 185, 220)] if not dark else \
+                       [(80, 90, 120), (120, 130, 160), (60, 70, 100)]
+                cv.px(x + i, y + j, base[int((v + 1) * 1.49)])
+
+    if grp in ("sun", "partly"):
+        if grp == "sun":
+            vg_orb(cv, x + S / 2, y + S / 2, 4.5 * k, (255, 170, 30), (255, 220, 90), f, rings=3 if S > 12 else 1)
+        else:
+            vg_orb(cv, x + S * 0.35, y + S * 0.35, 3.5 * k, (255, 170, 30), (255, 220, 90), f, rings=2 if S > 12 else 1)
+            swirl_cloud(0.75, S * 0.25 + drift, S * 0.3)
+    elif grp == "night":
+        cx, cy, r = x + S * 0.45, y + S * 0.45 + (round(math.sin(ph)) if S > 12 else 0), 5.5 * k
+        vg_orb(cv, cx, cy, r, (250, 220, 90), (255, 230, 130), f, rings=2 if S > 12 else 1)
+        for j in range(S):
+            for i in range(S):
+                if math.hypot(x + i + 0.5 - (cx + r * 0.6), y + j + 0.5 - (cy - r * 0.4)) <= r * 0.85 and \
+                        math.hypot(x + i + 0.5 - cx, y + j + 0.5 - cy) <= r:
+                    cv.px(x + i, y + j, VG_SKY[0])
+    elif grp in ("cloud", "rain", "snow", "storm", "wind", "fog"):
+        if grp == "cloud":
+            swirl_cloud(0.7, S * 0.3 - drift, 0)
+            swirl_cloud(0.85, drift, S * 0.2)
+        elif grp in ("fog", "wind"):
+            for n in range(4):
+                yy = y + int(S * (0.2 + n * 0.2))
+                for i in range(int(S * 0.9)):
+                    v = math.sin(i * 0.8 - ph * 2 + n)
+                    if v > -0.3:
+                        cv.px(x + i + 1, yy + (1 if grp == "wind" and v > 0.6 else 0),
+                              (230, 235, 245) if v > 0.4 else (150, 175, 215))
+        else:
+            swirl_cloud(0.9, S * 0.03 + drift, -S * 0.12, dark=(grp == "storm"))
+            top = int(S * 0.72)
+            for n in range(4 if S > 12 else 3):
+                xx = x + 2 + n * int(S / 4.2)
+                yy = y + top + (f + n * 3) % max(2, S - top)
+                if grp == "snow":
+                    cv.px(xx, yy, (255, 255, 255))
+                elif grp == "rain":
+                    cv.px(xx, yy, (225, 240, 255)); cv.px(xx - 1, yy - 1, (150, 200, 255))
+                    if S > 12: cv.px(xx - 2, yy - 2, (90, 150, 230))
+            if grp == "storm" and f % 8 < 3:
+                for j, dx in enumerate([2, 1, 0, 1, 2, 1, 0][: max(3, S - top)]):
+                    cv.px(x + S // 2 + dx, y + top - 1 + j, (255, 240, 100))
+    else:
+        cv.text(x + S // 2, y + S // 2 - 2, "?", VG_YEL, align="center", outline=VG_INK)
+
+
+def render_weather_van_gogh(d, f):
+    cv = Canvas()
+    vg_sky(cv, 0, 0, 64, 40, f, vortices=[(40, 20, 13), (8, 8, 6)])
+    vg_field(cv, 0, 40, 64, 24, f)
+    cv.text(32, 1, str(d.get("time", "")), VG_YEL, "gicko", "center", outline=VG_INK,
+            colfn=lambda x, y, j: mix((255, 250, 200), (240, 160, 30), j / 5))
+    cv.text(2, 2, str(d.get("date", "")), VG_CREAM, outline=VG_INK)
+    cv.text(61, 2, str(d.get("dow", "")), VG_CREAM, align="right", outline=VG_INK)
+    vg_icon(cv, 2, 11, 20, cond_group(cur_cond(d)), f)
+    vg_calm(cv, 26, 11, 37, 25)
+    vg_temp(cv, 44, 13, cur_temp(d), warm=(cur_temp(d) or 0) >= 15)
+    today, nxt = today_and_next(d)
+    if today:
+        hi, lo = num(today.get("hi")), num(today.get("lo"))
+        if hi is not None:
+            tri(cv, 29, 28, UP[0], (255, 140, 60)); cv.text(36, 27, "%d°" % round(hi), (255, 170, 90), outline=VG_INK)
+        if lo is not None:
+            tri(cv, 46, 28, DOWN[0], (120, 180, 255)); cv.text(53, 27, "%d°" % round(lo), (150, 200, 255), outline=VG_INK)
+    for n in range(4):
+        x = n * 16
+        vg_calm(cv, x + 1, 37, 14, 26, k=0.62, tint=(40, 25, 10))
+        if n >= len(nxt):
+            continue
+        day = nxt[n]
+        weekend = int(num(day.get("wd")) or 0) in (6, 7)
+        cv.text(x + 8, 40, str(day.get("d", ""))[:2], (255, 150, 110) if weekend else VG_CREAM, align="center", outline=VG_INK)
+        vg_icon(cv, x + 3, 45, 10, cond_group(day.get("c")), (f + n * 3) % FRAMES)
+        hi, lo = num(day.get("hi")), num(day.get("lo"))
+        if hi is not None:
+            cv.text(x + 8, 52, "%d" % round(hi), VG_YEL, align="center", outline=VG_INK)
+        if lo is not None:
+            cv.text(x + 8, 58, "%d" % round(lo), (150, 200, 255), align="center", outline=VG_INK)
+    return cv.img
+
+
+# ----------------------------------------------------------------------------
+# HOKUSAI  - ukiyo-e woodblock: paper, bokashi skies, cartouches, red seal, rolling waves
+# ----------------------------------------------------------------------------
+HK_P, HK_P2 = (232, 216, 178), (212, 194, 152)
+HK_PB, HK_IN, HK_LB = (30, 62, 128), (16, 28, 66), (120, 162, 204)
+HK_FO, HK_RD = (246, 244, 232), (196, 48, 34)
+HK_CAT = [(110, 150, 70), (215, 168, 40), (222, 112, 40), (182, 40, 40), (112, 62, 132)]
+
+
+def hk_bokashi(cv, x0, y0, w, h, top, bottom, f=None):
+    for j in range(h):
+        t = (j / max(1, h - 1)) ** 0.8
+        c = mix(top, bottom, t)
+        for i in range(w):
+            g = c
+            if (_hash(x0 + i, y0 + j, 11) % 9) == 0:                    # woodgrain speckle
+                g = shade(c, -0.06)
+            cv.px(x0 + i, y0 + j, g)
+
+
+def hk_waves(cv, x0, y0, w, h, f, deep=HK_PB):
+    """Two layers of stylised waves scrolling sideways, foam 'claws' on the crests."""
+    L = 16
+    for layer, (base, amp, col, sp) in enumerate([(y0 + 3, 2.0, HK_LB, 1), (y0 + 7, 2.5, deep, -1)]):
+        sc = (f * L / FRAMES) * sp
+        for i in range(w):
+            x = x0 + i
+            ph = 2 * math.pi * (x + sc + layer * 5) / L
+            crest = base + amp * math.sin(ph) + 0.8 * math.sin(2 * ph + 1)
+            ci = int(round(crest))
+            for y in range(ci, y0 + h):
+                stripe = (y - ci) % 3 == 1 and layer == 1
+                cv.px(x, y, mix(col, HK_FO, 0.25) if stripe else col)
+            cv.px(x, ci, HK_FO)
+            if math.cos(ph) > 0.75:                                  # curling foam fingers
+                cv.px(x, ci - 1, HK_FO)
+                if (x + layer) % 2 == 0 and x0 <= x + sp < x0 + w:
+                    cv.px(x + sp, ci - 2, HK_FO)
+
+
+def hk_cartouche(cv, x, y, w, h, fill=HK_P):
+    cv.rect(x, y, w, h, HK_IN)
+    cv.rect(x + 1, y + 1, w - 2, h - 2, fill)
+    cv.rect(x + 2, y + 1, w - 4, 1, mix(fill, HK_RD, 0.35))         # thin red inner rule
+
+
+def hk_seal(cv, x, y, w, h, text, font="pico", tc=HK_P, col=HK_RD):
+    cv.rect(x, y, w, h, col)
+    for (i, j) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (2, 0), (w - 3, h - 1)]:
+        cv.px(x + i, y + j, mix(col, HK_P, 0.6))                     # worn stamp edges
+    cv.text(x + w // 2, y + (h - (6 if font == "gicko" else 5)) // 2 + (0 if font == "gicko" else 0),
+            text, tc, font, "center", shadow=False)
+
+
+HK_MINKA = ["...k...", "..kkk..", ".kkkkk.", "kkkkkkk", ".pppip.", ".pdpip.", ".pdppp."]
+HK_PINE = ["..ggg..", "ggggg..", "...gggg", ".ggg...", "gggggg.", "...b...", "...b..."]
+
+
+def hk_sprite(cv, x, y, rows, pal):
+    for j, r in enumerate(rows):
+        for i, ch in enumerate(r):
+            if ch in pal:
+                cv.px(x + i, y + j, pal[ch])
+
+
+def hk_appliance(cv, x, y, a, f):
+    k, kind = a["k"], a["kind"]
+    on = k == "run"
+    ink = HK_IN if k not in ("idle", "off") else mix(HK_IN, HK_P, 0.55)
+    for i in range(13):
+        cv.px(x + i, y, ink); cv.px(x + i, y + 12, ink); cv.px(x, y + i, ink); cv.px(x + 12, y + i, ink)
+    ang = 2 * math.pi * f / FRAMES
+    if kind in ("washer", "dryer"):
+        cv.rect(x + 1, y + 3, 11, 1, ink)
+        fillc = HK_PB if kind == "washer" else HK_RD
+        for j in range(13):
+            for i in range(13):
+                d0 = math.hypot(i - 6, j - 7.5)
+                if 3.0 < d0 <= 4.1:
+                    cv.px(x + i, y + j, ink)
+                elif d0 <= 3.0 and on:
+                    t = math.atan2(j - 7.5, i - 6)
+                    cv.px(x + i, y + j, HK_FO if math.sin(3 * t + 2 * d0 - 3 * ang) > 0.55 else fillc)
+        cv.px(x + 10, y + 1, HK_RD if on and (f // 4) % 2 else ink)
+    else:
+        cv.rect(x + 2, y + 3, 9, 1, ink)
+        hx = x + 4 + (round(2 + 2 * math.sin(ang)) if on else 2)
+        cv.rect(hx - 1, y + 4, 3, 2, HK_RD if on else ink)
+        cv.rect(x + 4, y + 9, 5, 2, ink)
+        if a["pct"] is not None and k in ("run", "pause"):
+            cv.rect(x + 1, y + 11, max(0, round(11 * max(0, min(100, a["pct"])) / 100)), 1, HK_RD)
+
+
+def hk_label_color(k):
+    return {"done": (40, 110, 40), "err": HK_RD, "pause": (170, 110, 0)}.get(
+        k, HK_IN if k not in ("idle", "off") else mix(HK_IN, HK_P, 0.5))
+
+
+def hk_sun_card(cv, d, f, y0=41):
+    for x, w, rising, t in [(0, 32, True, d.get("sunrise")), (32, 32, False, d.get("sunset"))]:
+        top, bot = ((240, 220, 160), (245, 170, 120)) if rising else ((40, 50, 110), (235, 120, 70))
+        hk_bokashi(cv, x, y0, w, 15, top, bot)
+        prog = f / (FRAMES - 1)
+        sy = (y0 + 14 - 6 * prog) if rising else (y0 + 8 + 6 * prog)
+        disc(cv, x + w // 2, sy, 4, lambda t_, i, j: HK_RD)
+        hk_waves(cv, x, y0 + 11, w, 12, f)
+        hk_cartouche(cv, x + 5, y0, w - 10, 8)
+        cv.text(x + w // 2, y0 + 2, str(t or "--:--"), HK_IN if rising else HK_RD, "pico", "center", shadow=False)
+    cv.rect(31, y0, 2, 23, HK_IN)
+
+
+def render_dashboard_hokusai(d, f, variant=0):
+    cv = Canvas()
+    hk_bokashi(cv, 0, 0, 64, 41, HK_PB, HK_P)
+    # drifting mist band
+    off = (f * 64 // FRAMES)
+    for i in range(64):
+        x = (i + off) % 64
+        if (i // 6) % 3 != 2:
+            cv.px(x, 22, mix(cv.get(x, 22), HK_FO, 0.55))
+    for x, v, h, rows, pal in [(1, num(d.get("t_in")), d.get("h_in"), HK_MINKA,
+                                {"k": (120, 80, 40), "p": HK_P, "d": HK_IN, "i": HK_RD}),
+                               (33, num(d.get("t_out")), d.get("h_out"), HK_PINE,
+                                {"g": (40, 90, 60), "b": (100, 60, 30)})]:
+        hk_cartouche(cv, x, 1, 30, 20)
+        hk_sprite(cv, x + 2, 3, rows, pal)
+        hv = num(h)
+        if hv is not None:
+            cv.text(x + 27, 4, "%d%%" % round(hv), HK_PB, align="right", shadow=False)
+        s = temp_str(v)
+        if s:
+            cv.text(x + 15, 9, s, HK_IN, "big", "center", shadow=False)
+    # AQI seal + gauge of woodblock colour chips
+    a = num(d.get("aqi"))
+    if a is not None:
+        col = aqi_color(a)
+        hk_seal(cv, 2, 25, 17, 12, str(int(round(a))), "gicko")
+        cv.text(22, 26, "AQI", HK_IN, shadow=False)
+        cat = 0 if a < 50 else 1 if a < 101 else 2 if a < 151 else 3 if a < 201 else 4
+        for i in range(5):
+            c = HK_CAT[i] if i <= cat else mix(HK_CAT[i], HK_P, 0.7)
+            cv.rect(22 + i * 4, 33, 3, 3 if i != cat else 4, c)
+        cv.px(22 + cat * 4 + 1, 37 if (f // 4) % 2 else 32, HK_IN)
+    out = rain_outlook(d)
+    if out is not None:
+        ux, uy = 46, 24
+        if out[0]:
+            # Hiroshige-style slanting rain across the middle band + an open wagasa
+            for n in range(9):
+                x0 = (n * 7 + f * 2) % 70 - 6
+                for t in range(5):
+                    xx, yy = x0 + t, 23 + ((n * 5 + f * 3) % 16) + t * 2
+                    if 23 <= yy <= 39 and cv.get(xx, yy) not in (HK_RD,):
+                        cv.px(xx, yy, mix(cv.get(xx, yy), HK_IN, 0.55))
+            sway = round(math.sin(2 * math.pi * f / FRAMES))
+            for j, r in enumerate(["....rrrr....", "..rrprrprr..", ".rrrprrprrr.", "rrrrprrprrrr"]):
+                for i, ch in enumerate(r):
+                    if ch != ".":
+                        cv.px(ux + i + sway, uy + 2 + j, HK_RD if ch == "r" else HK_P)
+            cv.rect(ux + 6, uy + 6, 1, 7, (100, 60, 30)); cv.rect(ux + 4, uy + 12, 2, 1, (100, 60, 30))
+        else:
+            disc(cv, ux + 11, uy + 5, 3.5, lambda t_, i, j: HK_RD)
+            for j in range(9):
+                cv.px(ux + 2 + (1 if j > 6 else 0), uy + 3 + j, HK_RD if j < 6 else (100, 60, 30))
+            cv.rect(ux + 1, uy + 4, 3, 4, HK_RD)
+    if show_sun_card(d, variant):
+        hk_sun_card(cv, d, f)
+    else:
+        hk_bokashi(cv, 0, 40, 64, 6, HK_P, HK_LB)
+        hk_waves(cv, 0, 44, 64, 20, f)
+        for x, a2 in zip((1, 23, 45), appl_list(d)):
+            hk_cartouche(cv, x, 41, 18, 22)
+            hk_appliance(cv, x + 3, 43, a2, f)
+            cv.text(x + 9, 56, a2["label"], hk_label_color(a2["k"]), align="center", shadow=False)
+    return cv.img
+
+
+def hk_icon(cv, x, y, w, h, grp, f, small=False):
+    """Woodblock weather vignette inside a w x h panel."""
+    ph = 2 * math.pi * f / FRAMES
+    drift = round((2 if not small else 1) * math.sin(ph))
+    night = grp == "night"
+    top, bot = {"sun": ((120, 170, 215), (240, 220, 170)), "night": (HK_IN, HK_PB),
+                "storm": ((50, 50, 70), (110, 110, 120)), "rain": ((90, 105, 130), (180, 180, 170)),
+                "snow": ((150, 165, 185), (230, 230, 225))}.get(grp, ((140, 175, 210), (235, 225, 195)))
+    hk_bokashi(cv, x, y, w, h, top, bot)
+    if not small:   # a distant snow-capped mountain
+        mx, base = x + w // 2 + 3, y + h - 1
+        for j in range(9):
+            for i in range(-j - 1, j + 2):
+                c = HK_FO if j < 3 else (HK_PB if not night else HK_IN)
+                cv.px(mx + i, base - 8 + j, c)
+
+    def bands(yy, c=HK_FO, n=2):
+        for k in range(n):
+            L = (w // 2) if not small else w - 3
+            bx = x + 1 + ((k * w // 3 + drift) % max(1, w - L))
+            cv.rect(bx, yy + k * (3 if not small else 2), L, 1 if small else 2, c)
+            cv.px(bx - 1, yy + k * (3 if not small else 2), c)
+
+    if grp in ("sun", "partly"):
+        r = 5 if not small else 2.2
+        disc(cv, x + (w * 0.38), y + h * 0.38, r + (0.4 if (f // 4) % 2 else 0), lambda t_, i, j: HK_RD)
+        if grp == "partly":
+            bands(y + int(h * 0.45))
+    elif grp == "night":
+        disc(cv, x + w * 0.35, y + h * 0.35 + (0 if small else round(math.sin(ph))), 4.5 if not small else 2,
+             lambda t_, i, j: (245, 225, 140))
+        bands(y + int(h * 0.42), (90, 110, 160))
+    elif grp in ("cloud", "fog", "wind"):
+        bands(y + int(h * 0.2), HK_FO, 3)
+        if grp == "wind":
+            lx = x + (f * w // FRAMES)
+            cv.px(lx, y + int(h * 0.3) + round(math.sin(ph * 2)), (200, 120, 40))
+    elif grp in ("rain", "storm", "snow"):
+        bands(y + 1, (200, 205, 210) if grp != "storm" else (80, 80, 95), 2)
+        if grp == "snow":
+            for n in range(6 if not small else 3):
+                cv.px(x + 2 + n * (w // 6 if not small else 3), y + 4 + (f // 2 + n * 3) % (h - 5), HK_FO)
+        else:
+            for n in range(7 if not small else 3):
+                x0 = x + (n * 5 + f) % w
+                yy = y + 3 + (n * 4 + f * 2) % max(1, h - 4)
+                for t in range(3 if not small else 2):
+                    if x0 + t < x + w and yy + t * 2 < y + h:
+                        cv.px(x0 + t, yy + t * 2, HK_IN)
+        if grp == "storm" and f % 8 < 3:
+            for j, dx in enumerate([2, 1, 0, 1, 2, 1][: (6 if not small else 3)]):
+                cv.px(x + w // 2 + dx, y + 3 + j, (255, 230, 80))
+
+
+def render_weather_hokusai(d, f):
+    cv = Canvas()
+    cv.rect(0, 0, 64, 64, HK_P)
+    hk_cartouche(cv, 0, 0, 50, 11)
+    cv.text(5, 4, str(d.get("date", "")), HK_PB, shadow=False)
+    cv.text(34, 3, str(d.get("time", "")), HK_IN, "gicko", "center", shadow=False)
+    hk_seal(cv, 51, 0, 13, 11, str(d.get("dow", "")))
+    cv.rect(0, 12, 28, 25, HK_IN)
+    hk_icon(cv, 1, 13, 26, 23, cond_group(cur_cond(d)), f)
+    hk_cartouche(cv, 29, 12, 35, 25)
+    s = temp_str(cur_temp(d))
+    if s:
+        cv.text(46, 15, s, HK_IN, "big", "center", shadow=False)
+    today, nxt = today_and_next(d)
+    if today:
+        hi, lo = num(today.get("hi")), num(today.get("lo"))
+        if hi is not None:
+            tri(cv, 32, 30, UP[0], HK_RD); cv.text(38, 29, "%d°" % round(hi), HK_RD, shadow=False)
+        if lo is not None:
+            tri(cv, 48, 30, DOWN[0], HK_PB); cv.text(54, 29, "%d°" % round(lo), HK_PB, shadow=False)
+    hk_bokashi(cv, 0, 37, 64, 8, HK_P, HK_LB)
+    hk_waves(cv, 0, 44, 64, 20, f)
+    for n in range(4):
+        x = n * 16
+        hk_cartouche(cv, x + 1, 38, 14, 26)
+        if n >= len(nxt):
+            continue
+        day = nxt[n]
+        weekend = int(num(day.get("wd")) or 0) in (6, 7)
+        if weekend:
+            hk_seal(cv, x + 3, 39, 10, 7, str(day.get("d", ""))[:2])
+        else:
+            cv.text(x + 8, 40, str(day.get("d", ""))[:2], HK_IN, align="center", shadow=False)
+        hk_icon(cv, x + 3, 46, 10, 6, cond_group(day.get("c")), (f + n * 3) % FRAMES, small=True)
+        hi, lo = num(day.get("hi")), num(day.get("lo"))
+        if hi is not None:
+            cv.text(x + 8, 53, "%d" % round(hi), HK_RD, align="center", shadow=False)
+        if lo is not None:
+            cv.text(x + 8, 58, "%d" % round(lo), HK_PB, align="center", shadow=False)
+    return cv.img
+
+
+# ----------------------------------------------------------------------------
+# KLIMT  - gold-leaf mosaic, spirals & gem tiles, black panels, shimmering glint
+# ----------------------------------------------------------------------------
+K_G, K_GL, K_GD = (214, 166, 46), (252, 218, 112), (146, 102, 24)
+K_K, K_CR = (14, 11, 8), (244, 230, 192)
+K_GEMS = [(40, 172, 160), (196, 46, 46), (74, 152, 82), (190, 196, 205), (120, 70, 150)]
+K_MOTIFS = {
+    "ring": ".DD./D..D/D..D/.DD.", "eye": "KKKK/KLLK/KLLK/KKKK", "spiral": "DDDD/...D/DD.D/D..D",
+    "gem": "DDDD/DTTD/DTTD/DDDD", "check": "KK../KK../..CC/..CC", "dots": "L.../..L./.L../...L",
+}
+
+
+def k_glint(x, y, f, width=46):
+    pos = (x + y - f * width / FRAMES) % width
+    return pos < 3
+
+
+def k_mosaic(cv, x0, y0, w, h, f):
+    for cy in range(y0, y0 + h, 4):
+        for cx in range(x0, x0 + w, 4):
+            hsh = _hash(cx // 4, cy // 4, 5) % 100
+            motif = (None if hsh < 34 else "ring" if hsh < 52 else "spiral" if hsh < 66 else
+                     "gem" if hsh < 78 else "eye" if hsh < 88 else "check" if hsh < 94 else "dots")
+            gem = K_GEMS[_hash(cx, cy, 9) % len(K_GEMS)]
+            rows = K_MOTIFS[motif].split("/") if motif else ["....", "....", "....", "...."]
+            for j in range(4):
+                for i in range(4):
+                    x, y = cx + i, cy + j
+                    if not (x0 <= x < x0 + w and y0 <= y < y0 + h):
+                        continue
+                    ch = rows[j][i]
+                    c = {"D": K_GD, "K": K_K, "L": K_GL, "T": gem, "C": K_CR}.get(ch, K_G)
+                    if ch == "." and _hash(x, y, 2) % 7 == 0:
+                        c = shade(K_G, -0.12)
+                    if ch in (".", "D", "L") and k_glint(x, y, f):
+                        c = mix(c, (255, 250, 220), 0.6)
+                    if ch == "T" and (f // 2 + cx + cy) % 16 == 0:
+                        c = mix(c, (255, 255, 255), 0.6)                 # gem sparkle
+                    cv.px(x, y, c)
+
+
+def k_panel(cv, x, y, w, h, f=0):
+    cv.rect(x, y, w, h, K_GD)
+    cv.rect(x + 1, y + 1, w - 2, h - 2, K_K)
+    for j in range(y + 2, y + h - 2):                                 # gold flecks in the black
+        for i in range(x + 2, x + w - 2):
+            hh = _hash(i, j, 21) % 29
+            if hh == 0:
+                cv.px(i, j, mix(K_K, K_G, 0.42))
+            elif hh == 1:
+                cv.px(i, j, mix(K_K, K_GEMS[_hash(i, j, 3) % 3], 0.35))
+    for (i, j) in ((x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1)):
+        cv.px(i, j, K_GL)
+    for i in range(x + 2, x + w - 2, 3):                              # dotted gold inner rule
+        cv.px(i, y + 1, mix(K_K, K_G, 0.45))
+
+
+def k_gold(top=(255, 236, 160), bot=(190, 128, 30)):
+    return lambda x, y, j: mix(top, bot, j / 10)
+
+
+def k_temp(cv, cx, y, v, scale):
+    s = temp_str(v)
+    if not s:
+        return
+    if v < scale[0][1]:
+        top, bot = (230, 240, 255), (120, 160, 210)                  # silver-blue
+    elif v > scale[1][0]:
+        top, bot = (255, 200, 150), (200, 60, 40)                    # red gold
+    else:
+        top, bot = (255, 238, 160), (190, 128, 30)                   # gold leaf
+    cv.text(cx, y, s, K_G, "big", "center", shadow=False, colfn=k_gold(top, bot))
+
+
+def k_spiral_disc(cv, cx, cy, r, f, c1=K_GL, c2=K_GD):
+    ang = 2 * math.pi * f / FRAMES
+    disc(cv, cx, cy, r, lambda t, i, j: c1 if math.sin(
+        3.2 * t * r - math.atan2(j + 0.5 - cy, i + 0.5 - cx) - ang * 2) > 0 else c2)
+
+
+def k_appliance(cv, x, y, a, f):
+    k, kind = a["k"], a["kind"]
+    on = k == "run"
+    line = K_G if k not in ("idle", "off") else K_GD
+    for i in range(13):
+        cv.px(x + i, y, line); cv.px(x + i, y + 12, line); cv.px(x, y + i, line); cv.px(x + 12, y + i, line)
+    ang = 2 * math.pi * f / FRAMES
+    if kind in ("washer", "dryer"):
+        cv.rect(x + 1, y + 3, 11, 1, line)
+        gem = K_GEMS[0] if kind == "washer" else K_GEMS[1]
+        for j in range(13):
+            for i in range(13):
+                d0 = math.hypot(i - 6, j - 7.5)
+                if 3.0 < d0 <= 4.1:
+                    cv.px(x + i, y + j, line)
+                elif d0 <= 3.0:
+                    t = math.atan2(j - 7.5, i - 6)
+                    v = math.sin(2 * t + 2.2 * d0 - (3 * ang if on else 0))
+                    c = (gem if v > 0 else K_GL) if on else (mix(gem, K_K, 0.6) if v > 0 else K_K)
+                    cv.px(x + i, y + j, c)
+        for i in range(2, 6, 2):
+            cv.px(x + i, y + 1, K_GEMS[2] if on else K_GD)
+    else:
+        cv.rect(x + 2, y + 3, 9, 1, line)
+        hx = x + 4 + (round(2 + 2 * math.sin(ang)) if on else 2)
+        cv.rect(hx - 1, y + 4, 3, 2, K_GL if on else K_GD)
+        for n in range(3):
+            cv.rect(x + 4 + n * 2, y + 9, 1, 2, K_GEMS[n] if k not in ("idle", "off") else K_GD)
+        if a["pct"] is not None and k in ("run", "pause"):
+            for n in range(5):
+                lit = n < round(5 * max(0, min(100, a["pct"])) / 100)
+                cv.px(x + 2 + n * 2, y + 11, K_GL if lit else K_GD)
+
+
+def k_label_color(k):
+    return {"run": K_GEMS[0], "done": (140, 220, 120), "err": (240, 80, 70), "pause": K_GL,
+            "prep": K_GEMS[0]}.get(k, mix(K_CR, K_K, 0.45))
+
+
+def k_meadow(cv, x0, y0, w, h, f):
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            hsh = _hash(x, y, 13) % 100
+            c = (40, 90, 50) if hsh < 55 else (70, 130, 60)
+            if hsh > 86:
+                c = [(240, 200, 60), (220, 70, 90), (250, 250, 240), (120, 90, 200)][hsh % 4]
+                if (f // 4 + x) % 5 == 0:
+                    c = mix(c, (255, 255, 255), 0.4)
+            cv.px(x, y, c)
+
+
+def k_sun_card(cv, d, f, y0=41):
+    for x, w, rising, t in [(0, 32, True, d.get("sunrise")), (32, 32, False, d.get("sunset"))]:
+        top, bot = ((30, 120, 120), (230, 190, 90)) if rising else ((90, 20, 30), (230, 120, 40))
+        for j in range(14):
+            cv.rect(x, y0 + j, w, 1, mix(top, bot, j / 13))
+        prog = f / (FRAMES - 1)
+        sy = (y0 + 13 - 6 * prog) if rising else (y0 + 7 + 6 * prog)
+        k_spiral_disc(cv, x + w // 2, sy, 4.2, f)
+        k_meadow(cv, x, y0 + 13, w, 10, f)
+        cv.rect(x + 6, y0 + 15, w - 12, 7, K_K)
+        cv.text(x + w // 2, y0 + 16, str(t or "--:--"), K_GL, align="center", shadow=False,
+                colfn=k_gold())
+    cv.rect(31, y0, 2, 23, K_GD)
+
+
+K_HOUSE = ["...G...", "..GGG..", ".GTTTG.", "GGGGGGG", ".CCCCC.", ".CKCRC.", ".CKCCC."]
+K_TREE = [".GG.GG.", "G..G..G", "G.GGG.G", ".G.G.G.", "..GGG..", "...G...", "..GGG.."]
+
+
+def k_sprite(cv, x, y, rows):
+    pal = {"G": K_GL, "T": K_GEMS[0], "C": K_CR, "K": K_K, "R": K_GEMS[1]}
+    for j, r in enumerate(rows):
+        for i, ch in enumerate(r):
+            if ch in pal:
+                cv.px(x + i, y + j, pal[ch])
+
+
+def render_dashboard_klimt(d, f, variant=0):
+    cv = Canvas()
+    k_mosaic(cv, 0, 0, 64, 64, f)
+    for x, v, h, icon, scale in [(1, num(d.get("t_in")), d.get("h_in"), K_HOUSE, IN_SCALE),
+                                 (33, num(d.get("t_out")), d.get("h_out"), K_TREE, OUT_SCALE)]:
+        k_panel(cv, x, 1, 30, 21)
+        k_sprite(cv, x + 2, 3, icon)
+        hv = num(h)
+        if hv is not None:
+            cv.text(x + 27, 4, "%d%%" % round(hv), K_GEMS[0], align="right", shadow=False)
+        k_temp(cv, x + 15, 10, v, scale)
+    k_panel(cv, 1, 24, 46, 16)
+    a = num(d.get("aqi"))
+    cv.text(4, 33, "AQI", mix(K_CR, K_K, 0.3), shadow=False)
+    if a is not None:
+        col = aqi_color(a)
+        cv.text(4, 26, str(int(round(a))), col, "gicko", shadow=False,
+                colfn=lambda x, y, j: mix(mix(col, (255, 255, 255), 0.55), col, j / 5))
+        cat = 0 if a < 50 else 1 if a < 101 else 2 if a < 151 else 3 if a < 201 else 4
+        for i in range(5):
+            gx, gy = 23 + i * 4, 29
+            c = aqi_color(i * 50 + 25)
+            if i <= cat:
+                cv.rect(gx, gy, 3, 3, c)
+                cv.px(gx, gy, mix(c, (255, 255, 255), 0.6))
+                if i == cat and (f // 4) % 2:
+                    cv.rect(gx - 1, gy - 1, 5, 1, K_GL); cv.rect(gx - 1, gy + 3, 5, 1, K_GL)
+            else:
+                cv.rect(gx, gy, 3, 3, (40, 32, 20)); cv.px(gx + 1, gy + 1, K_GD)
+    k_panel(cv, 49, 24, 14, 16)
+    out = rain_outlook(d)
+    if out is not None:
+        if out[0]:
+            sway = round(math.sin(2 * math.pi * f / FRAMES))
+            for j, r in enumerate(["...GGG...", ".GGTGTGG.", "GGTGGGTGG"]):
+                for i, ch in enumerate(r):
+                    if ch != ".":
+                        cv.px(51 + i + sway, 27 + j, K_GL if ch == "G" else K_GEMS[0])
+            cv.rect(55, 30, 1, 6, K_G); cv.rect(53, 35, 2, 1, K_G)
+            for n, dx in enumerate((51, 59, 53, 61)):
+                yy = 30 + (f + n * 3) % 8
+                cv.px(dx, yy, K_GEMS[0] if n % 2 else K_GL)
+        else:
+            k_spiral_disc(cv, 56, 32, 4.2, f)
+    if show_sun_card(d, variant):
+        k_sun_card(cv, d, f)
+    else:
+        for x, a2 in zip((1, 22, 43), appl_list(d)):
+            k_panel(cv, x, 42, 20, 22)
+            k_appliance(cv, x + 4, 43, a2, f)
+            cv.text(x + 10, 57, a2["label"], k_label_color(a2["k"]), align="center", shadow=False)
+    return cv.img
+
+
+def k_icon(cv, x, y, S, grp, f):
+    ph = 2 * math.pi * f / FRAMES
+    drift = round((2 if S > 12 else 1) * math.sin(ph))
+    small = S <= 12
+
+    def silver_cloud(sc, ox, oy, dark=False):
+        m = _cloud_mask(S, sc, ox, oy)
+        for (i, j) in m:
+            edge = any(n not in m for n in ((i + 1, j), (i - 1, j), (i, j + 1), (i, j - 1)))
+            if edge:
+                c = K_GL if not dark else K_GD
+            else:
+                c = [(205, 210, 220), (170, 178, 192), (230, 232, 238)][(_hash(i // 2, j // 2, 4)) % 3]
+                if dark:
+                    c = shade(c, -0.45)
+                if not small and k_glint(x + i, y + j, f, 30):
+                    c = mix(c, (255, 255, 255), 0.6)
+            cv.px(x + i, y + j, c)
+
+    if grp in ("sun", "partly"):
+        if grp == "sun":
+            k_spiral_disc(cv, x + S / 2, y + S / 2, S * 0.28, f)
+            for n in range(8):
+                a = n * math.pi / 4 + ph / 8
+                rr = S * 0.42
+                cv.px(round(x + S / 2 + rr * math.cos(a)), round(y + S / 2 + rr * math.sin(a)),
+                      K_GL if (n + f // 4) % 2 else K_GEMS[1])
+        else:
+            k_spiral_disc(cv, x + S * 0.36, y + S * 0.36, S * 0.22, f)
+            silver_cloud(0.75, S * 0.25 + drift, S * 0.3)
+    elif grp == "night":
+        cx, cy, r = x + S * 0.45, y + S * 0.45 + (0 if small else round(math.sin(ph))), S * 0.28
+        disc(cv, cx, cy, r, lambda t, i, j: K_CR if math.hypot(i + 0.5 - (cx + r * 0.6), j + 0.5 - (cy - r * 0.4)) > r * 0.85 else K_K)
+        for n, (sx, sy) in enumerate([(0.8, 0.15), (0.85, 0.7), (0.15, 0.85)][: (1 if small else 3)]):
+            if (f // 4 + n) % 3:
+                cv.px(x + int(S * sx), y + int(S * sy), K_GL)
+    elif grp in ("cloud", "rain", "snow", "storm"):
+        if grp == "cloud":
+            silver_cloud(0.7, S * 0.3 - drift, 0)
+            silver_cloud(0.85, drift, S * 0.2)
+        else:
+            silver_cloud(0.9, S * 0.03 + drift, -S * 0.12, dark=(grp == "storm"))
+            top = int(S * 0.72)
+            for n in range(4 if not small else 3):
+                xx = x + 2 + n * int(S / 4.2)
+                yy = y + top + (f // (2 if grp == "snow" else 1) + n * 3) % max(2, S - top)
+                c = {"rain": K_GEMS[0], "snow": (250, 250, 250), "storm": K_GEMS[0]}[grp]
+                cv.px(xx, yy, c)
+                if not small and grp == "rain":
+                    cv.px(xx, yy - 1, mix(c, K_K, 0.4))
+            if grp == "storm" and f % 8 < 3:
+                for j, dx in enumerate([2, 1, 0, 1, 2, 1][: max(3, S - top)]):
+                    cv.px(x + S // 2 + dx, y + top - 1 + j, K_GL)
+    elif grp in ("fog", "wind"):
+        for n in range(4 if not small else 3):
+            yy = y + int(S * (0.2 + n * 0.22))
+            for i in range(int(S * 0.85)):
+                xx = x + 1 + (i + (f // 2 if grp == "wind" else 0) * (1 if n % 2 else -1)) % int(S * 0.85)
+                cv.px(xx, yy, K_GL if (i // 2) % 2 else (190, 196, 205))
+    else:
+        cv.text(x + S // 2, y + S // 2 - 2, "?", K_GL, align="center", shadow=False)
+
+
+def k_small_icon(cv, x, y, grp, f):
+    """10x5 jewel-like forecast glyphs."""
+    t = (f // 4) % 2
+    silver = [(205, 210, 220), (230, 232, 238)]
+    if grp in ("sun", "partly"):
+        k_spiral_disc(cv, x + (5 if grp == "sun" else 3), y + 2.5, 2.6, f)
+        if grp == "partly":
+            cv.rect(x + 4 + t, y + 2, 6, 3, silver[0]); cv.rect(x + 5 + t, y + 1, 3, 1, silver[1])
+        elif t:
+            for (dx, dy) in ((0, -1), (10, 2), (5, 5)):
+                cv.px(x + dx, y + dy, K_GEMS[1])
+    elif grp == "night":
+        disc(cv, x + 4, y + 2.5, 2.6, lambda tt, i, j: K_CR if i < x + 4 + (j % 2) else K_K)
+        if t: cv.px(x + 8, y, K_GL)
+    elif grp in ("cloud", "rain", "snow", "storm"):
+        c = silver if grp != "storm" else [(110, 112, 120), (140, 142, 150)]
+        cv.rect(x + 1 + (t if grp == "cloud" else 0), y + 1, 8, 2, c[0])
+        cv.rect(x + 3 + (t if grp == "cloud" else 0), y, 4, 1, c[1])
+        for n in range(3):
+            if grp in ("rain", "snow"):
+                cv.px(x + 2 + n * 3, y + 3 + (f // 2 + n) % 3, K_GEMS[0] if grp == "rain" else (255, 255, 255))
+        if grp == "storm" and f % 8 < 4:
+            cv.px(x + 5, y + 3, K_GL); cv.px(x + 4, y + 4, K_GL)
+    elif grp in ("fog", "wind"):
+        for n in range(3):
+            cv.rect(x + ((f // 4 + n) % 2), y + n * 2, 9, 1, K_GL if n % 2 else (190, 196, 205))
+
+
+def render_weather_klimt(d, f):
+    cv = Canvas()
+    k_mosaic(cv, 0, 0, 64, 64, f)
+    k_panel(cv, 0, 0, 64, 11)
+    cv.text(3, 3, str(d.get("date", "")), mix(K_CR, K_K, 0.2), shadow=False)
+    cv.text(32, 3, str(d.get("time", "")), K_GL, "gicko", "center", shadow=False, colfn=k_gold())
+    cv.text(60, 3, str(d.get("dow", "")), K_GEMS[0], align="right", shadow=False)
+    k_panel(cv, 0, 12, 26, 25)
+    k_icon(cv, 3, 15, 20, cond_group(cur_cond(d)), f)
+    k_panel(cv, 27, 12, 37, 25)
+    k_temp(cv, 45, 15, cur_temp(d), OUT_SCALE)
+    today, nxt = today_and_next(d)
+    if today:
+        hi, lo = num(today.get("hi")), num(today.get("lo"))
+        if hi is not None:
+            tri(cv, 31, 30, UP[0], K_GEMS[1]); cv.text(37, 29, "%d°" % round(hi), (240, 130, 90), shadow=False)
+        if lo is not None:
+            tri(cv, 47, 30, DOWN[0], K_GEMS[0]); cv.text(53, 29, "%d°" % round(lo), K_GEMS[0], shadow=False)
+    for n in range(4):
+        x = n * 16
+        k_panel(cv, x, 38, 16, 26)
+        if n >= len(nxt):
+            continue
+        day = nxt[n]
+        weekend = int(num(day.get("wd")) or 0) in (6, 7)
+        cv.text(x + 8, 41, str(day.get("d", ""))[:2], K_GEMS[1] if weekend else K_CR, align="center", shadow=False)
+        k_small_icon(cv, x + 3, 47, cond_group(day.get("c")), (f + n * 3) % FRAMES)
+        hi, lo = num(day.get("hi")), num(day.get("lo"))
+        if hi is not None:
+            cv.text(x + 8, 52, "%d" % round(hi), K_GL, align="center", shadow=False, colfn=k_gold())
+        if lo is not None:
+            cv.text(x + 8, 58, "%d" % round(lo), K_GEMS[0], align="center", shadow=False)
+    return cv.img
+
+
+# ----------------------------------------------------------------------------
+# Design selection
+# ----------------------------------------------------------------------------
+ART_DESIGNS = ["mondrian", "van_gogh", "hokusai", "klimt"]
+ALL_DESIGNS = ["classic"] + ART_DESIGNS
+
+
+def resolve_design(data):
+    """'classic', an art design, or a rotation: 'rotate daily', 'rotate hourly', 'rotate daily (art only)'."""
+    name = str(data.get("design") or "classic").lower().strip()
+    key = name.replace(" ", "_")
+    if key in ALL_DESIGNS:
+        return key
+    if name.startswith("rotate"):
+        pool = ART_DESIGNS if "art" in name else ALL_DESIGNS
+        today = str(data.get("today") or "")
+        try:
+            day_no = datetime.date.fromisoformat(today[:10]).toordinal()
+        except ValueError:
+            day_no = datetime.date.today().toordinal()
+        hour = int(str(data.get("time") or "0:0").split(":")[0] or 0) if str(data.get("time") or "")[:2].isdigit() else 0
+        idx = day_no * 24 + hour if "hour" in name else day_no
+        return pool[idx % len(pool)]
+    return "classic"
+
+
+def page_renderers(design):
+    if design == "classic":
+        return render_dashboard, render_weather
+    return globals()["render_dashboard_" + design], globals()["render_weather_" + design]
+
+
 # ----------------------------------------------------------------------------
 # GIF output
 # ----------------------------------------------------------------------------
@@ -1212,7 +2546,7 @@ DEMO = {
     "t_in": 23.8, "t_out": 19.9, "h_in": 41, "h_out": 32, "aqi": 72,
     "wm": "job_ongoing", "td": "job_completed", "pr": "printing", "pr_left": 85, "pr_pct": 62,
     "time": "10:31", "date": "4.10", "dow": "NE", "today": "2026-10-04", "sun": "above_horizon",
-    "theme": "neon", "vivid": "vivid", "wm_age": 7200, "td_age": 190000, "pr_age": 400000,
+    "theme": "neon", "vivid": "vivid", "design": "classic", "wm_age": 7200, "td_age": 190000, "pr_age": 400000,
     "sunrise": "07:02", "sunset": "18:41", "hourly_ok": True,
     "hourly": [{"t": "14", "p": 10, "mm": 0, "c": "cloudy"}, {"t": "17", "p": 60, "mm": 0.8, "c": "rainy"}], "wind_speed": 12, "wind_unit": "km/h", "wind_bearing": 225,
     "weather": {"condition": "partlycloudy", "temperature": 25},
@@ -1254,7 +2588,9 @@ def main():
         save_gif(frames, path, gamma, sat)
         return path
 
-    render(lambda f: render_weather(data, f), os.path.join(OUT_DIR, "weather.gif"))
+    design = resolve_design(data)
+    dash_fn, weather_fn = page_renderers(design)
+    render(lambda f: weather_fn(data, f), os.path.join(OUT_DIR, "weather.gif"))
     # dashboard_0.gif = appliances (or sunrise/sunset when everything is idle),
     # dashboard_1.gif = sunrise/sunset. The Pixoo page alternates between them (see gif_url).
     # dashboard_2.gif is a copy of dashboard_1.gif for older page configs using "% 3".
@@ -1262,23 +2598,24 @@ def main():
         all_idle = all(k in ("idle", "off") for k, _ in _appliance_states(data))
     except Exception:
         all_idle = False
-    first = render(lambda f: render_dashboard(data, f, 0), os.path.join(OUT_DIR, "dashboard_0.gif"))
+    first = render(lambda f: dash_fn(data, f, 0), os.path.join(OUT_DIR, "dashboard_0.gif"))
     second = os.path.join(OUT_DIR, "dashboard_1.gif")
     if all_idle:
         _copy(first, second)
     else:
-        render(lambda f: render_dashboard(data, f, 1), second)
+        render(lambda f: dash_fn(data, f, 1), second)
     _copy(second, os.path.join(OUT_DIR, "dashboard_2.gif"))
     _copy(first, os.path.join(OUT_DIR, "dashboard.gif"))
 
-    status = "%s  theme=%s  colours=%s  all_idle=%s\n" % (data.get("time"), THEME_NAME, preset, all_idle)
+    status = "%s  design=%s  theme=%s  colours=%s  all_idle=%s\n" % (
+        data.get("time"), design, THEME_NAME, preset, all_idle)
     status += ("ERRORS:\n" + "\n".join(errors)) if errors else "OK\n"
     with open(os.path.join(OUT_DIR, "status.txt"), "w") as fh:
         fh.write(status)
     if errors:
         print(status, file=sys.stderr)
         sys.exit(1)
-    print("ok theme=%s vivid=%s" % (THEME_NAME, preset))
+    print("ok design=%s theme=%s vivid=%s" % (design, THEME_NAME, preset))
 
 
 if __name__ == "__main__":

@@ -5,6 +5,15 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
 ![Neon theme](docs/previews/theme_neon.gif)
 
+**Art designs:** four complete redesigns in the style of famous artists. These are original pixel art, not copies of specific paintings.
+
+| | |
+|---|---|
+| **Mondrian**: black grid, white and primary-colour cells that change with your data, colour squares running along the lines | **Van Gogh**: animated swirling brushstroke sky, star-like orbs, wind-swept golden wheat field |
+| ![](docs/previews/design_mondrian.gif) | ![](docs/previews/design_van_gogh.gif) |
+| **Hokusai**: woodblock paper, gradient skies, title cartouches, red seal stamp, paper umbrella, rolling waves | **Klimt**: shimmering gold-leaf mosaic with spirals and gem tiles, black panels, gold-leaf numbers |
+| ![](docs/previews/design_hokusai.gif) | ![](docs/previews/design_klimt.gif) |
+
 ## Features
 
 - **Two animated pages**: a home dashboard and a weather page with a 4-day forecast.
@@ -52,7 +61,8 @@ The script needs only Pillow, which already ships with Home Assistant. One rende
 
 | Helper | What it does |
 |---|---|
-| `input_select.pixoo_theme` | Theme for all pages. Changes apply within a second. |
+| `input_select.pixoo_design` | `classic` (tiles), `mondrian`, `van_gogh`, `hokusai`, `klimt`, `rotate daily`, `rotate hourly`, or `rotate daily (art only)`. |
+| `input_select.pixoo_theme` | Colour theme for the classic design. Changes apply within a second. |
 | `input_select.pixoo_colors` | `vivid` (default), `extra vivid`, `soft` or `off`. Pick what looks best at your brightness. |
 
 You can also change these constants at the top of `pixoo_render.py`:

@@ -10,8 +10,20 @@
 # =============================================================================
 
 input_select:
+  pixoo_design:
+    name: Pixoo design
+    icon: mdi:palette-swatch-variant
+    options:
+      - classic                 # tiles design (uses "Pixoo theme")
+      - mondrian
+      - van_gogh
+      - hokusai
+      - klimt
+      - rotate daily            # cycles classic + all art designs, one per day
+      - rotate hourly
+      - rotate daily (art only)
   pixoo_theme:
-    name: Pixoo theme
+    name: Pixoo theme (classic design)
     icon: mdi:palette
     options:
       - auto              # neon, Halloween (Oct 24-31), Christmas (Dec 1 - Jan 6)
@@ -47,6 +59,7 @@ automation:
         minutes: /1
       - trigger: state
         entity_id:
+          - input_select.pixoo_design
           - input_select.pixoo_theme
           - input_select.pixoo_colors
           - sensor.netatmo_smart_thermostat_current_temperature
@@ -105,6 +118,7 @@ automation:
             {% set rise = state_attr('sun.sun', 'next_rising') %}
             {% set sett = state_attr('sun.sun', 'next_setting') %}
             {{ {
+              'design': states('input_select.pixoo_design'),
               'theme':  states('input_select.pixoo_theme'),
               'vivid':  states('input_select.pixoo_colors'),
               't_in':   states('sensor.netatmo_smart_thermostat_current_temperature'),
