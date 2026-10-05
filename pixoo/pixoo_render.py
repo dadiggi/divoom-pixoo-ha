@@ -4544,6 +4544,267 @@ def rotation_slot(data, override=None):
 
 
 # ----------------------------------------------------------------------------
+# STARSHIP  - original starship bridge: viewport onto space, violet hull, teal & gold console
+# ----------------------------------------------------------------------------
+SS_SPACE, SS_HULL, SS_HULL_L, SS_HULL_D = (1, 1, 8), (34, 30, 54), (78, 72, 112), (14, 12, 26)
+SS_TEAL, SS_GOLD, SS_VIO, SS_TXT, SS_DIM = (40, 228, 210), (255, 188, 64), (150, 105, 255), (228, 240, 250), (120, 128, 165)
+SS_STATE = {"run": SS_TEAL, "prep": SS_TEAL, "done": (80, 235, 110), "pause": SS_GOLD, "err": (255, 70, 70),
+            "idle": (70, 72, 100), "off": (50, 50, 70)}
+
+
+def ss_hull(cv):
+    for y in range(64):
+        for x in range(64):
+            v = ((_hash(x // 8, y // 5, 51) % 5) - 2) * 0.03          # hull plating
+            cv.px(x, y, shade(SS_HULL, v))
+            if y % 5 == 0 and _hash(x // 8, y // 5, 52) % 3 == 0:
+                cv.px(x, y, SS_HULL_D)
+
+
+def ss_frame(cv, x, y, w, h):
+    """Bevelled hull frame around a viewport or console pane (corners cut at 45 degrees)."""
+    for i in range(x, x + w):
+        cv.px(i, y, SS_HULL_L); cv.px(i, y + h - 1, SS_HULL_D)
+    for j in range(y, y + h):
+        cv.px(x, j, SS_HULL_L); cv.px(x + w - 1, j, SS_HULL_D)
+    for (cx, cy) in ((x, y), (x + w - 1, y), (x, y + h - 1), (x + w - 1, y + h - 1)):
+        cv.px(cx, cy, SS_HULL)
+
+
+def ss_space(cv, x0, y0, w, h, f, seed=1, vx=None, vy=None, n=34):
+    """Viewport: deep space with a faint nebula; near stars rush outwards from the vanishing point."""
+    vx = x0 + w / 2 if vx is None else vx
+    vy = y0 + h / 2 if vy is None else vy
+    for y in range(y0, y0 + h):
+        for x in range(x0, x0 + w):
+            neb = math.sin(x * 0.17 + y * 0.09 + seed) + math.sin(x * 0.05 - y * 0.21 + 2 * seed)
+            c = mix(SS_SPACE, (40, 14, 70), max(0.0, neb - 0.8) * 0.35)
+            if _hash(x, y, 53 + seed) % 97 == 0:                      # distant fixed stars
+                c = (90, 95, 130) if _hash(x, y, 54) % 3 else (170, 175, 210)
+            cv.px(x, y, c)
+    m = MO.m(3)
+    rmax = math.hypot(w, h) * 0.6
+    for i in range(n):
+        hs = _hash(i, seed, 55)
+        a = (hs % 628) / 100.0
+        t = ((m / FRAMES) + (hs % 97) / 97.0) % 1.0                   # seamless: one pass per cycle
+        r = 2 + rmax * t * t
+        for k in range(2 if t > 0.55 else 1):                         # streak when close
+            rr = r - k * 1.6
+            x, y = round(vx + rr * math.cos(a)), round(vy + rr * math.sin(a) * 0.8)
+            if x0 <= x < x0 + w and y0 <= y < y0 + h:
+                cv.px(x, y, mix((90, 110, 170), (235, 245, 255), min(1.0, t * 1.4 - k * 0.4)))
+
+
+def ss_planet(cv, cx, cy, r, f, x0=0, y0=0, x1=64, y1=64):
+    """Ringed gas giant with drifting cloud bands, lit from the upper left."""
+    m = MO.m(3)
+    ring = []
+    for k in range(int(r * 9)):
+        a = 2 * math.pi * k / (r * 9)
+        ring.append((cx + 1.75 * r * math.cos(a), cy + 0.42 * r * math.sin(a), math.sin(a)))
+    def draw_ring(front):
+        for (x, y, z) in ring:
+            if (z > 0) == front and x0 <= x < x1 and y0 <= y < y1:
+                cv.px(round(x), round(y), (200, 170, 120) if front else (110, 92, 70))
+    draw_ring(False)
+    for j in range(int(cy - r) - 1, int(cy + r) + 2):
+        for i in range(int(cx - r) - 1, int(cx + r) + 2):
+            if not (x0 <= i < x1 and y0 <= j < y1):
+                continue
+            dx, dy = (i + 0.5 - cx) / r, (j + 0.5 - cy) / r
+            q = dx * dx + dy * dy
+            if q > 1:
+                continue
+            dz = math.sqrt(1 - q)
+            lon = math.asin(max(-1, min(1, dx / math.sqrt(max(1e-6, 1 - dy * dy))))) + m * 2 * math.pi / FRAMES
+            band = math.sin(dy * 9 + 0.6 * math.sin(lon * 2))
+            base = mix((150, 95, 200), (70, 200, 200), 0.5 + 0.5 * band)
+            if band > 0.85: base = (235, 210, 255)
+            lam = max(0.0, -0.55 * dx - 0.55 * dy + 0.62 * dz)
+            cv.px(i, j, shade(base, -0.8 + 1.0 * lam))
+    draw_ring(True)
+
+
+def ss_running_lights(cv, y):
+    """Effect: hull running lights chasing along an edge."""
+    e = MO.e()
+    for n, x in enumerate(range(3, 64, 6)):
+        on = MO.fx and (n + e // 2) % 4 == 0
+        cv.px(x, y, SS_GOLD if on else shade(SS_GOLD, -0.7))
+
+
+def ss_shooting_star(cv, x0, y0, w, h, salt=5):
+    """Effect: a comet crossing the viewport now and then."""
+    p = MO.event(salt)
+    if p is None:
+        return
+    x, y = x0 + w - round(p * (w + 10)), y0 + 2 + round(p * (h - 6) * 0.5)
+    for k in range(5):
+        if x0 <= x + k < x0 + w and y0 <= y - k // 2 < y0 + h:
+            cv.px(x + k, y - k // 2, mix((255, 255, 255), (60, 120, 200), k / 5))
+
+
+@protects
+def ss_station(cv, x, y, w, h, a, f):
+    """Crew station for one machine: status header, animated glyph, readout, console buttons."""
+    cv.rect(x, y, w, h, SS_HULL_D)
+    ss_frame(cv, x, y, w, h)
+    k = a["k"]
+    col = SS_STATE.get(k, SS_DIM)
+    f1 = MO.m(1)
+    hdr = col if not (k == "err" and (f1 // 4) % 2) else shade(col, -0.6)
+    cv.rect(x + 1, y + 1, w - 2, 2, hdr)
+    cx, cy = x + w // 2, y + 10
+    run = k == "run"
+    if a["kind"] in ("washer", "dryer"):
+        for t in range(24):
+            ang = 2 * math.pi * t / 24
+            cv.px(round(cx + 4 * math.cos(ang)), round(cy + 4 * math.sin(ang)), SS_DIM)
+        ang = (f1 if run else 0) * math.pi / 4
+        for k2 in range(3):
+            aa = ang + k2 * 2 * math.pi / 3
+            cv.px(round(cx + 2.2 * math.cos(aa)), round(cy + 2.2 * math.sin(aa)), col if run else SS_DIM)
+        cv.px(cx, cy, SS_TXT if run else SS_DIM)
+        if a["kind"] == "dryer" and run:
+            for n in range(2):
+                cv.px(cx - 2 + n * 4 + ((f1 // 2) % 2), cy - 6, SS_GOLD)
+    else:
+        cv.rect(cx - 5, cy - 4, 11, 1, SS_DIM)
+        nx = cx - 3 + ((f1 // 2) % 7 if run else 3)
+        cv.px(nx, cy - 3, SS_GOLD); cv.px(nx, cy - 2, SS_GOLD if run else SS_DIM)
+        pct = a.get("pct")
+        hgt = 0 if pct is None else max(1, round(5 * pct / 100))
+        if k == "done": hgt = 5
+        cv.rect(cx - 2, cy + 4 - hgt + 1, 5, hgt, col)
+        cv.rect(cx - 5, cy + 5, 11, 1, SS_DIM)
+    cv.text(cx, y + h - 9, str(a["label"])[:5], col if k not in ("idle", "off") else SS_DIM, align="center", shadow=False)
+    f2 = MO.m(2)
+    for n in range(3):                                                # console buttons
+        lit = (n + f2 // 4 + (1 if run else 0)) % 3 == 0
+        cv.rect(x + 3 + n * 5, y + h - 3, 3, 1, [SS_TEAL, SS_GOLD, SS_VIO][n] if lit else shade([SS_TEAL, SS_GOLD, SS_VIO][n], -0.7))
+
+
+def ss_readout(cv, x, y, w, label, temp, hum, salt):
+    cv.text(x + 2, y, label, SS_TEAL, shadow=False)
+    hv = num(hum)
+    if hv is not None:
+        cv.text(x + w - 2, y, "%d%%" % round(hv), SS_GOLD, align="right", shadow=False)
+    s_ = temp_str(num(temp))
+    if s_:
+        tw = cv.text_width(s_, "big")
+        cv.text(x + w // 2, y + 7, s_, SS_TXT, "big", "center", outline=(4, 4, 16),
+                grad=[0.35, 0.25, 0.15, 0.05, 0, 0, -0.05, -0.1, -0.15, -0.2, -0.25], glint=glint_pos(0, tw, salt))
+
+
+def render_dashboard_starship(d, f, variant=0):
+    cv = Canvas()
+    ss_hull(cv)
+    # viewport with both temperatures
+    ss_space(cv, 1, 1, 62, 22, f, seed=1)
+    ss_shooting_star(cv, 1, 1, 62, 22)
+    cv.rect(31, 1, 2, 22, SS_HULL)                                     # window strut
+    cv.px(31, 1, SS_HULL_L); cv.px(32, 22, SS_HULL_D)
+    ss_frame(cv, 0, 0, 64, 24)
+    ss_readout(cv, 1, 2, 30, "IN", d.get("t_in"), d.get("h_in"), 0)
+    ss_readout(cv, 33, 2, 30, "OUT", d.get("t_out"), d.get("h_out"), 1)
+    # sensor strip: air quality cells + precipitation
+    cv.rect(0, 25, 64, 12, SS_HULL_D)
+    ss_frame(cv, 0, 25, 64, 12)
+    cv.text(2, 29, "AQI", SS_TEAL, shadow=False)
+    a = num(d.get("aqi"))
+    if a is not None:
+        a = max(0, a)
+        cv.text(15, 28, "%d" % round(a), aqi_color(a), "gicko", shadow=False)
+        lit = min(8, max(1, math.ceil(a / 300 * 8)))
+        for n in range(8):
+            c = aqi_color((n + 0.5) * 300 / 8)
+            cv.rect(32 + n * 3, 29, 2, 4, c if n < lit else shade(c, -0.78))
+    out = rain_outlook(d)
+    if out is not None:
+        f1 = MO.m(1)
+        if out[0]:
+            cv.sprite(57, 28, DROP[0], {"C": (60, 170, 255), "W": (220, 240, 255), "c": (30, 100, 200)}, shadow=False)
+            cv.px(59, 34 + (f1 // 4) % 2, (60, 170, 255))
+        else:
+            for t in range(12):
+                ang = 2 * math.pi * t / 12
+                cv.px(round(59 + 2.5 * math.cos(ang)), round(31 + 2.5 * math.sin(ang)), SS_GOLD)
+            cv.px(59, 31, SS_GOLD)
+    # crew stations or sunrise / sunset
+    if show_sun_card(d, variant):
+        for n, (key, lab, rising) in enumerate((("sunrise", "RISE", True), ("sunset", "SET", False))):
+            x = n * 32
+            cv.rect(x, 38, 32, 26, SS_HULL_D)
+            ss_space(cv, x + 1, 39, 30, 14, f, seed=3 + n, vx=x + 16, vy=52, n=10)
+            for i in range(x + 1, x + 31):                             # planet horizon from orbit
+                hy = 50 + round(((i - x - 16) / 15) ** 2 * 3)
+                for j in range(hy, 53):
+                    cv.px(i, j, mix((20, 60, 120), (60, 150, 220), (j - hy) / 3) if j > hy else (140, 210, 255))
+            bob = 0 if MO.still(2) else round(math.sin(2 * math.pi * MO.m(2) / FRAMES))
+            sy = (48 if rising else 49) + bob
+            sx = x + (10 if rising else 22)
+            for j in range(-2, 3):
+                for i in range(-2, 3):
+                    if i * i + j * j <= 5 and sy + j < 50 + round(((sx + i - x - 16) / 15) ** 2 * 3):
+                        cv.px(sx + i, sy + j, (255, 230, 140) if i * i + j * j <= 2 else SS_GOLD)
+            ss_frame(cv, x, 38, 32, 26)
+            cv.text(x + 3, 41, lab, SS_TEAL, shadow=False)
+            cv.text(x + 16, 55, str(d.get(key) or "--:--")[:5], SS_TXT, align="center", shadow=False)
+    else:
+        for n, ap in enumerate(appl_list(d)):
+            ss_station(cv, n * 21 + (1 if n == 2 else 0), 38, 21, 26, ap, f)
+    ss_running_lights(cv, 24)
+    return cv.img
+
+
+def render_weather_starship(d, f):
+    cv = Canvas()
+    ss_hull(cv)
+    cv.rect(0, 0, 64, 10, SS_HULL_D)
+    ss_frame(cv, 0, 0, 64, 10)
+    cv.text(2, 3, str(d.get("date") or ""), SS_DIM, shadow=False)
+    cv.text(32, 2, str(d.get("time") or ""), SS_TXT, "gicko", "center", shadow=False)
+    today_ = today_date(d)
+    weekend = today_ is not None and today_.weekday() >= 5
+    cv.text(62, 3, str(d.get("dow") or ""), SS_GOLD if weekend else SS_TEAL, align="right", shadow=False)
+    # viewport: space, ringed planet, current weather as a hologram
+    ss_space(cv, 1, 12, 62, 23, f, seed=2, vx=20, vy=22)
+    ss_planet(cv, 57, 18, 5, f, 48, 12, 63, 35)
+    ss_shooting_star(cv, 1, 12, 62, 23)
+    ss_frame(cv, 0, 11, 64, 25)
+    weather_icon(cv, 2, 13, 14, cur_cond(d), str(d.get("sun", "")) == "below_horizon", f)
+    s_ = temp_str(cur_temp(d))
+    if s_:
+        tw = cv.text_width(s_, "big")
+        cv.text(33, 14, s_, SS_TXT, "big", "center", outline=(4, 4, 16),
+                grad=[0.35, 0.25, 0.15, 0.05, 0, 0, -0.05, -0.1, -0.15, -0.2, -0.25], glint=glint_pos(0, tw))
+    today, nxt = today_and_next(d)
+    if today:
+        hi, lo = num(today.get("hi")), num(today.get("lo"))
+        x = 20
+        if hi is not None:
+            cv.sprite(x, 28, UP[0], {"#": SS_GOLD}, shadow=False)
+            x += 6 + cv.text(x + 6, 27, "%d" % round(hi), SS_GOLD, outline=(4, 4, 16)) + 3
+        if lo is not None:
+            cv.sprite(x, 28, DOWN[0], {"#": SS_TEAL}, shadow=False)
+            cv.text(x + 6, 27, "%d" % round(lo), SS_TEAL, outline=(4, 4, 16))
+    ss_running_lights(cv, 36)
+    # forecast consoles
+    for n, day in enumerate(nxt[:4]):
+        x = n * 16
+        cv.rect(x, 38, 16, 26, SS_HULL_D)
+        ss_frame(cv, x, 38, 16, 26)
+        wd = fc_weekday(day)
+        cv.text(x + 8, 40, str(day.get("d") or "")[:2], SS_GOLD if wd is not None and wd >= 5 else SS_TEAL,
+                align="center", shadow=False)
+        weather_icon(cv, x + 3, 46, 10, day.get("c"), False, (f + n * 3) % FRAMES)
+        hi, lo = num(day.get("hi")), num(day.get("lo"))
+        cv.text(x + 8, 57, "%d" % round(hi) if hi is not None else "-", SS_TXT, align="center", shadow=False)
+    return cv.img
+
+
+# ----------------------------------------------------------------------------
 # Labels for the purist and kid designs (English / Hrvatski, selectable in HA)
 # ----------------------------------------------------------------------------
 LANGS = {
@@ -4860,19 +5121,33 @@ KID_C = {"red": (225, 45, 45), "orange": (245, 135, 25), "yellow": (240, 196, 20
          "brown": (140, 85, 45), "pink": (240, 110, 170), "ink": (40, 40, 50), "grey": (140, 140, 150),
          "white": (250, 250, 250)}
 KID_RAINBOW = ["red", "orange", "green", "blue", "purple", "pink"]
+# kid_dark: gel pens on black paper - saturated colours bright enough to read on black, but no
+# pastel/white wash, and sparser scribbles so far fewer LEDs are lit than on white paper.
+KID_DARK_C = {"red": (255, 70, 70), "orange": (255, 150, 40), "yellow": (255, 214, 50), "green": (70, 210, 80),
+              "lgreen": (110, 225, 95), "blue": (70, 140, 255), "lblue": (100, 180, 255), "purple": (185, 110, 255),
+              "brown": (195, 125, 70), "pink": (255, 115, 190), "ink": (225, 225, 215), "grey": (150, 152, 168),
+              "white": (95, 100, 118), "cloud": (95, 135, 200)}
+KID_STYLE = "paper"
 
 
 def kid_pal():
-    """Crayon box for the current paper: crayons on light paper, chalk on dark backgrounds."""
+    """Crayon box for the current paper: crayons on light paper, chalk on dark backgrounds,
+    gel pens for the kid_dark design."""
     paper = tuple(int(v) for v in BACKDROP["mean"]) if BACKDROP else (238, 234, 224)
     light = bool(BACKDROP["light"]) if BACKDROP else True
+    if KID_STYLE == "dark":
+        K = dict(KID_DARK_C)
+        K["paper"], K["light"], K["sparse"] = paper, False, True
+        K["boil"] = (MO.m(5) // 3) % 3
+        return K
     K = dict(KID_C) if light else {k: mix(v, (255, 255, 255), 0.45) for k, v in KID_C.items()}
     if not light:
         K["ink"] = (240, 240, 232)
         K["white"] = (200, 205, 215)
     else:
         K["yellow"] = (232, 180, 0)          # a yellow you can read on white paper
-    K["paper"], K["light"] = paper, light
+    K["paper"], K["light"], K["sparse"] = paper, light, False
+    K["cloud"] = K["lblue"] if light else K["white"]
     K["boil"] = (MO.m(5) // 3) % 3        # hand-drawn "line boil" (motion level 5 only)
     return K
 
@@ -4904,7 +5179,10 @@ def kfill(cv, inside, x0, y0, x1, y1, c, K, seed=0, dens=3):
     for y in range(int(y0), int(y1) + 1):
         for x in range(int(x0), int(x1) + 1):
             if inside(x, y):
-                if (x - y + seed + b) % dens != 0 or _hash(x, y, seed + 5) % 4 == 0:
+                if K["sparse"]:            # gel-pen hatching: half the pixels, follows the strokes
+                    if (x - y + seed + b) % 2 == 0 and _hash(x, y, seed + 5) % 6:
+                        kpx(cv, x, y, c, K, seed)
+                elif (x - y + seed + b) % dens != 0 or _hash(x, y, seed + 5) % 4 == 0:
                     kpx(cv, x, y, c, K, seed)
             elif inside(x - 1, y + 1) and _hash(x, y, seed + b) % 7 == 0:
                 kpx(cv, x, y, c, K, seed)                         # coloured outside the lines
@@ -4988,7 +5266,13 @@ def kid_drop(cv, x, y, K):
 def kid_face(cv, cx, cy, r, level, K, f):
     """AQI as a crayon face: big smile when the air is good, frown when it is bad."""
     fills = [K["lgreen"], K["yellow"], K["orange"], K["red"], K["purple"], K["brown"]]
-    kring(cv, cx, cy, r, K["ink"], K, 11, fill=fills[min(level, 5)])
+    mood = fills[min(level, 5)]
+    if K["sparse"]:          # dark paper: mood-coloured outline, dim hatching, bright features
+        kfill(cv, lambda x, y: (x - cx) ** 2 + (y - cy) ** 2 <= (r - 0.6) ** 2,
+              cx - r, cy - r, cx + r, cy + r, shade(mood, -0.6), K, 11)
+        kring(cv, cx, cy, r, mood, K, 11)
+    else:
+        kring(cv, cx, cy, r, K["ink"], K, 11, fill=mood)
     blink = MO.m(2) == 13
     for ex in (cx - 2, cx + 2):
         if blink:
@@ -5039,7 +5323,7 @@ def kid_moon(cv, cx, cy, r, K, f):
 
 
 def kid_cloud(cv, cx, cy, S, K, col=None, out=None, seed=0):
-    col = col or (K["lblue"] if K["light"] else K["white"])
+    col = col or K["cloud"]
     out = out or K["blue"]
     blobs = [(-0.28, 0.05, 0.22), (0.0, -0.12, 0.3), (0.28, 0.06, 0.22)]
     inside = lambda x, y: any((x - (cx + bx * S)) ** 2 + (y - (cy + by * S)) ** 2 <= (br * S) ** 2
@@ -5090,7 +5374,7 @@ def kid_weather(cv, cx, cy, S, cond, K, f):
             if g == "snow":
                 y = top + (f // 2 + n * 3) % max(2, S // 3)
                 for dx, dy in ((0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)) if big else ((0, 0),):
-                    kpx(cv, x + dx, y + dy, K["lblue"] if K["light"] else K["white"], K)
+                    kpx(cv, x + dx, y + dy, K["lblue"] if K["light"] else K["ink"], K)
             else:
                 y = top + (f + n * 3) % max(2, S // 3)
                 kpx(cv, x, y, K["blue"], K); kpx(cv, x - 1, y + 1, K["blue"], K)
@@ -5240,6 +5524,24 @@ def render_dashboard_kid(d, f, variant=0):
     return cv.img
 
 
+def render_dashboard_kid_dark(d, f, variant=0):
+    global KID_STYLE
+    KID_STYLE = "dark"
+    try:
+        return render_dashboard_kid(d, f, variant)
+    finally:
+        KID_STYLE = "paper"
+
+
+def render_weather_kid_dark(d, f):
+    global KID_STYLE
+    KID_STYLE = "dark"
+    try:
+        return render_weather_kid(d, f)
+    finally:
+        KID_STYLE = "paper"
+
+
 def render_weather_kid(d, f):
     cv = Canvas()
     K, T = kid_pal(), tr(d)
@@ -5301,6 +5603,13 @@ def _bg_paper(x, y, base=(238, 234, 224), seed=3):
     c = _grain(base, 5, seed)(x, y)
     if _hash(x, y, seed + 9) % 53 == 0:                      # paper fibres
         c = shade(c, -0.06)
+    return c
+
+
+def _bg_black_paper(x, y):
+    c = _grain((14, 14, 17), 2, 13)(x, y)
+    if _hash(x, y, 14) % 61 == 0:                           # a few paper fibres
+        c = shade(c, 0.5)
     return c
 
 
@@ -5425,6 +5734,7 @@ BACKGROUNDS = {
     "burgundy": _vgrad((62, 10, 24), (32, 4, 12)),
     "ocean": _vgrad((0, 46, 76), (0, 18, 40)),
     "white_paper": _bg_paper,
+    "black_paper": _bg_black_paper,
     "kraft_paper": _bg_kraft,
     "notebook": _bg_notebook,
     "graph_paper": _bg_graph,
@@ -5443,8 +5753,8 @@ BACKGROUNDS = {
     "stripes": _bg_stripes,
 }
 BG_DESIGNS = {"classic": "dark", "hud": "dark", "digital_rain": "dark", "block_3d": "dark",
-              "mech": "dark", "purist": "quiet", "kid": "raw"}
-BG_DEFAULT = {"purist": "black", "kid": "white_paper"}
+              "mech": "dark", "purist": "quiet", "kid": "raw", "kid_dark": "dark"}
+BG_DEFAULT = {"purist": "black", "kid": "white_paper", "kid_dark": "black_paper"}
 BACKDROP = None          # active background: {"name", "pix" [y][x], "light", "mean"} or None
 
 
@@ -5573,7 +5883,7 @@ def _install_motion_tiers():
 # Design selection
 # ----------------------------------------------------------------------------
 ART_DESIGNS = ["mondrian", "van_gogh", "hokusai", "klimt", "digital_rain", "block_3d", "hud",
-               "comic", "mech", "platformer", "purist", "kid"]
+               "comic", "mech", "platformer", "purist", "kid", "kid_dark", "starship"]
 ALL_DESIGNS = ["classic"] + ART_DESIGNS
 
 

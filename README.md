@@ -35,6 +35,8 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 | ![](docs/previews/design_purist.gif) | ![](docs/previews/design_kid.gif) |
 | *purist, Hrvatski labels, white paper* | *kid, Hrvatski labels, chalkboard, at night* |
 | ![](docs/previews/design_purist_hr_paper.gif) | ![](docs/previews/design_kid_chalkboard.gif) |
+| **kid_dark**: the same child with gel pens on black paper. Saturated colours tuned to read well on black, lighter hatching instead of solid scribbles, and mood-coloured faces with bright eyes. It lights roughly a seventh as much LED as the white-paper kid (see [Brightness and power](#brightness-and-power)). | **starship**: an original starship bridge. A viewport onto space with stars rushing past and a slowly turning ringed gas giant, a violet hull with chasing running lights, teal and gold readouts, air quality as sensor cells, and a crew station for each machine (spinning drums, a moving toolhead, blinking console buttons). Sunrise and sunset are seen from orbit. |
+| ![](docs/previews/design_kid_dark.gif) | ![](docs/previews/design_starship.gif) |
 
 ## Features
 
@@ -49,7 +51,7 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 - **Weather page:** Croatian day names (PO, UT, SR, ČE, PE, SU, NE). Every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
 - **Themes for every design:** `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, or the design's `original` look. `seasonal (auto)` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6. Design and theme can each rotate hourly, every 6 hours or daily.
 - **Motion controls for every design:** choose how much moves and how fast, and separately how often and how fast effects happen, from a completely still image to everything moving. See [Motion](#motion).
-- **Backgrounds:** 23 backgrounds (solid colours, papers, chalkboard, wood, brick, carbon, denim, starfield, skies, patterns) for the designs that don't paint their own scenery. See [Backgrounds](#backgrounds).
+- **Backgrounds:** 24 backgrounds (solid colours, white and black papers, chalkboard, wood, brick, carbon, denim, starfield, skies, patterns) for the designs that don't paint their own scenery. See [Backgrounds](#backgrounds).
 - **Label language:** the purist and kid designs can be labelled in English or Hrvatski.
 - **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
 - **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
@@ -86,11 +88,11 @@ The script needs only Pillow, which already ships with Home Assistant. One run (
 
 | Helper | What it controls |
 |---|---|
-| `input_select.pixoo_design` | **What it looks like**: layout and art style. `classic`, `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `comic`, `mech`, `platformer`, `purist`, `kid`, `rotate`, `rotate (no classic)`. |
+| `input_select.pixoo_design` | **What it looks like**: layout and art style. `classic`, `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `comic`, `mech`, `platformer`, `purist`, `kid`, `kid_dark`, `starship`, `rotate`, `rotate (no classic)`. |
 | `input_select.pixoo_theme` | **How it's coloured**, for every design. `original` (the design's own colours), `seasonal (auto)`, `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, `rotate`. |
 | `input_select.pixoo_rotation` | **How often** design and/or theme change when set to `rotate`: `daily`, `every 6 hours`, `hourly`. |
 | `input_select.pixoo_colors` | **Panel calibration**, not a style: `vivid` (default), `extra vivid`, `soft`, `off`. |
-| `input_select.pixoo_background` | **Background** for classic, hud, digital_rain, block_3d, mech, purist and kid. `design default` keeps the design's own. |
+| `input_select.pixoo_background` | **Background** for classic, hud, digital_rain, block_3d, mech, purist, kid and kid_dark. `design default` keeps the design's own. |
 | `input_select.pixoo_language` | Labels of the purist and kid designs: `english`, `hrvatski`. |
 | `input_number.pixoo_motion_level` | **Moving parts**, 0–5: how much moves (default 5). |
 | `input_number.pixoo_motion_speed` | **Moving parts speed**, 0–5 (default 3 = original speed). |
@@ -98,6 +100,18 @@ The script needs only Pillow, which already ships with Home Assistant. One run (
 | `input_number.pixoo_effects_speed` | **Effects speed**, 0–5 (default 3). |
 
 The defaults reproduce the original look and pace.
+
+### Saving and restoring your settings
+
+All helpers keep their values across Home Assistant restarts. On the very first start after installing the package, the *Pixoo – first run defaults* automation sets the motion sliders to 5 / 3 / 3 / 3 once.
+
+| Script | What it does |
+|---|---|
+| `script.pixoo_save_settings` | Stores design, theme, rotation, colour boost, background, language and the four sliders in `input_text.pixoo_saved_settings`. The snapshot survives restarts. |
+| `script.pixoo_restore_settings` | Puts every helper back to the saved snapshot. |
+| `script.pixoo_reset_motion` | Sets the four sliders back to 5 / 3 / 3 / 3. |
+
+Run *save* once you're happy with a setup; after experimenting, *restore* brings it back. Home Assistant backups include the helper states and the snapshot too.
 
 ### Motion
 
@@ -126,18 +140,35 @@ Values are never animated into wrong digits at any setting.
 
 ### Backgrounds
 
-`black`, `midnight`, `charcoal`, `forest`, `burgundy`, `ocean`, `white paper`, `kraft paper`, `notebook`, `graph paper`, `blueprint`, `chalkboard`, `wood`, `brick`, `carbon`, `denim`, `linen`, `terrazzo`, `starfield`, `day sky`, `sunset`, `polka dots`, `stripes`.
+`black`, `midnight`, `charcoal`, `forest`, `burgundy`, `ocean`, `white paper`, `black paper`, `kraft paper`, `notebook`, `graph paper`, `blueprint`, `chalkboard`, `wood`, `brick`, `carbon`, `denim`, `linen`, `terrazzo`, `starfield`, `day sky`, `sunset`, `polka dots`, `stripes`.
 
 ![Backgrounds](docs/previews/backgrounds.png)
 
 - **classic, hud, digital_rain, block_3d, mech:** bright backgrounds are dimmed automatically so the light text stays readable (on classic the background shows through the tiles, on block_3d it becomes the back wall).
 - **purist:** the pattern is softened, and the ink switches between dark-on-light and light-on-dark to suit the background. Default: `black`.
 - **kid:** used as is; on dark backgrounds the crayons turn into chalk. Default: `white paper`.
-- **mondrian, van_gogh, hokusai, klimt, comic, platformer** keep their own scenery, because there the backdrop *is* the artwork (and the platformer sky shows the time of day and weather).
+- **kid_dark:** bright backgrounds are dimmed so the gel-pen colours keep their contrast. Default: `black paper`.
+- **mondrian, van_gogh, hokusai, klimt, comic, platformer, starship** keep their own scenery, because there the backdrop *is* the artwork (and the platformer sky shows the time of day and weather).
 
 Themes still apply on top of a background.
 
 ![Backgrounds on designs](docs/previews/backgrounds_on_designs.png)
+
+### Brightness and power
+
+An LED panel uses power roughly in proportion to how much light it makes, so bright, white-heavy designs cost more than dark ones at the same panel brightness. Average LED drive per design (share of full white, default settings):
+
+| Design | Drive |
+|---|---|
+| kid on white paper | ~73 % |
+| mondrian | ~47 % |
+| van_gogh | ~27 % |
+| kid on chalkboard | ~18 % |
+| classic | ~15 % |
+| purist (black) | ~13 % |
+| kid_dark (black paper) | ~10 % |
+
+The panel brightness setting scales all of these. Even at full white the Pixoo 64 stays a small appliance, but dark designs also look calmer at night.
 
 On the classic design, themes are hand-tuned palettes. On every other design, a theme recolours the background, frames and artwork towards its palette and adds its decorations (snow, string lights, bats, embers…). Text, numbers and colour-coded indicators (AQI colours, status lamps, health hearts) are never recoloured, so their meaning stays intact.
 

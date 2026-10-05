@@ -60,7 +60,7 @@ Pixoo integration: two page_type: gif pages download the GIFs from /local/pixoo/
 ### Repository layout
 
 ```
-pixoo/pixoo_render.py                       the renderer (~5,700 lines, single file)
+pixoo/pixoo_render.py                       the renderer (~6,100 lines, single file)
 homeassistant/packages/pixoo_animated.yaml  HA package: helpers, shell_command, automation
 homeassistant/pixoo_pages.yaml              paste into the Pixoo integration page list
 legacy/components_flat.yaml                 first static components-page version (no script)
@@ -96,16 +96,20 @@ The `?v=` part is a cache-buster.
 
 | Helper | Options | Meaning |
 |---|---|---|
-| `input_select.pixoo_design` | classic, mondrian, van_gogh, hokusai, klimt, digital_rain, block_3d, hud, comic, mech, platformer, purist, kid, rotate, rotate (no classic) | **What** it looks like (layout + style) |
+| `input_select.pixoo_design` | classic, mondrian, van_gogh, hokusai, klimt, digital_rain, block_3d, hud, comic, mech, platformer, purist, kid, kid_dark, starship, rotate, rotate (no classic) | **What** it looks like (layout + style) |
 | `input_select.pixoo_theme` | original, seasonal (auto), neon, steel, synthwave, crimson_desert, christmas, halloween, retro_platformer, rotate | **How** it's coloured; works on **every** design |
 | `input_select.pixoo_rotation` | daily, every 6 hours, hourly | Interval used when design and/or theme = `rotate` (they rotate independently, theme offset by 3) |
 | `input_select.pixoo_colors` | vivid (recommended), extra vivid, soft, off | LED calibration (gamma + saturation); not a style |
-| `input_select.pixoo_background` | design default + 23 backgrounds (black, midnight, charcoal, forest, burgundy, ocean, white paper, kraft paper, notebook, graph paper, blueprint, chalkboard, wood, brick, carbon, denim, linen, terrazzo, starfield, day sky, sunset, polka dots, stripes) | Background for classic, hud, digital_rain, block_3d, mech, purist, kid. Art designs keep their own (owner's choice). |
+| `input_select.pixoo_background` | design default + 24 backgrounds (black, midnight, charcoal, forest, burgundy, ocean, white paper, black paper, kraft paper, notebook, graph paper, blueprint, chalkboard, wood, brick, carbon, denim, linen, terrazzo, starfield, day sky, sunset, polka dots, stripes) | Background for classic, hud, digital_rain, block_3d, mech, purist, kid, kid_dark. Art designs, comic, platformer and starship keep their own (owner's choice). |
 | `input_select.pixoo_language` | english, hrvatski | Labels of purist and kid |
 | `input_number.pixoo_motion_level` | 0–5 (default 5) | Moving parts: how much moves |
 | `input_number.pixoo_motion_speed` | 0–5 (default 3) | Moving parts speed |
 | `input_number.pixoo_effects_frequency` | 0–5 (default 3) | How often effects happen |
 | `input_number.pixoo_effects_speed` | 0–5 (default 3) | Effect speed |
+| `input_boolean.pixoo_initialized` | on/off | Set by the first-run automation after applying slider defaults |
+| `input_text.pixoo_saved_settings` | JSON ≤ 255 chars (worst case 177) | Snapshot from `script.pixoo_save_settings`; `script.pixoo_restore_settings` applies it; `script.pixoo_reset_motion` sets 5/3/3/3 |
+
+**Restore rule:** never give these helpers `initial:` — in HA that overrides the restored value on every restart (the first motion patch had this bug; fixed). Without `initial`, an input_number with no history starts at `min` (0 = still image), which is why the `pixoo_first_run_defaults` automation exists.
 
 Defaults (5/3/3/3, design default background) reproduce the pre-motion-control output; only the effects moved to the event scheduler changed slightly (AQI shine, Klimt shimmer, rain sweeps, HUD glitch timing).
 
@@ -168,6 +172,9 @@ Defaults (5/3/3/3, design default background) reproduce the pre-motion-control o
 | **purist** | Clean and clear. Column headers TEMP / HUMID, labelled rows IN/OUT (SOBA/VANI), AQI number in its category colour + category word, "RAIN TODAY 17:00" (first rainy hour) or NO, appliance rows with words (RUNNING, DONE, IDLE FOR 2H, 62% 1H25). Weather: 2× clock, full day name + date with month name (no 4.10 ambiguity), current temp + ↑high ↓low, condition in words, 4-day table with 3-letter days, small calm icons, ↑/↓ temps. `fit()` picks the longest wording that fits. Ink adapts to the background (dark on light, light on dark); text gets a halo in the background's mean colour. |
 | **kid** | Crayon drawing on white paper: house (IN) and tree (OUT) with hand-written temps coloured by warmth, raindrop humidity, AQI as a crayon face (smile → frown), purple umbrella in the rain or a sun in sunglasses, machines as boxes (water sloshing, dryer wiggles, printer toy growing with progress, gold star when done, red ! on error), sun card with smiling suns over a hill and big arrows. Weather: rainbow clock digits (2× crayon font), rainbow day name, big crayon weather drawing, bird flying past (level 4), forecast as little drawings. Crayon texture (paper grain gaps), wobbly circles, scribble fills that overshoot the outline, letters jittered on the line, "line boil" at motion level 5, glitter stars as its effect. Chalk palette on dark backgrounds. Temperatures are whole numbers here (kid style). |
 
+| **kid_dark** | Same drawings as kid (`KID_STYLE = "dark"` switches `kid_pal()` to `KID_DARK_C`): saturated gel-pen colours for black, half-density hatching (`K["sparse"]`) so far fewer LEDs are lit, AQI face drawn as mood-coloured outline + dim hatching + bright features, snow in bright ink. Default background `black_paper`; tone `dark`. ~10 % average LED drive vs ~73 % for kid on white paper. |
+| **starship** | Original starship bridge (owner asked for a Star Trek TNG look; declined as a protected production design, built an original one instead, like comic/mech/platformer before). Violet hull plating, bevelled frames with cut corners, viewport with nebula + stars rushing out from a vanishing point (`ss_space`, tier 3), ringed gas giant with drifting bands (`ss_planet`, tier 3), teal/gold readouts with big font, AQI as 8 sensor cells, rain drop / dry sun ring, crew stations per machine (`ss_station`, @protects: status header, drum/toolhead tier 1, console buttons tier 2), sunrise/sunset seen from orbit, running lights (effect clock) and a comet (effect event). Keeps its own backdrop. |
+
 **Platformer hero:** an original **fox** with a teal scarf.
 - The scarf flutters as he moves.
 - At night he carries a glowing lantern.
@@ -227,7 +234,7 @@ Defaults (5/3/3/3, design default background) reproduce the pre-motion-control o
 
 ## 7c. Backgrounds and language
 
-- `BACKGROUNDS` = name → `fn(x, y) -> rgb` (procedural, static). `BG_DESIGNS` = design → tone: `dark` (classic, hud, digital_rain, block_3d, mech; dimmed so mean luminance ≤ 52), `quiet` (purist; pattern contrast halved), `raw` (kid). `BG_DEFAULT`: purist black, kid white paper.
+- `BACKGROUNDS` = name → `fn(x, y) -> rgb` (procedural, static). `BG_DESIGNS` = design → tone: `dark` (classic, hud, digital_rain, block_3d, mech, kid_dark; dimmed so mean luminance ≤ 52), `quiet` (purist; pattern contrast halved), `raw` (kid). `BG_DEFAULT`: purist black, kid white paper, kid_dark black paper.
 - `resolve_background()` → global `BACKDROP` = `{name, pix, mean, light}` or None. `Canvas.__init__` paints it and keeps a per-canvas copy in `cv.bgl`; `is_bg()` treats backdrop pixels as background (so classic theme decorations still find free space). Classic tiles become translucent (`mix(bg, TILE, 0.35)`).
 - Hooks: `hud_bg`, `rain_bg`, `b_room` (back wall only), `x_bulkhead` skip their own fill when `cv.bgl` is set.
 - `LANGS["en"/"hr"]` + `tr(d)`: all purist/kid wording (state words, AQI categories, days, months, conditions, kid words). Helpers: `aqi_level`, `age_short`, `first_rain_hour`, `today_date`, `fc_weekday`, `fit`.
@@ -276,9 +283,11 @@ Defaults (5/3/3/3, design default background) reproduce the pre-motion-control o
   7. Comic, mech, platformer; themes on every design; separate rotation interval
   8. Platformer fox hero
   9. Motion controls (moving parts level/speed, effects frequency/speed), purist and kid designs, 23 selectable backgrounds, English/Hrvatski labels
+  10. kid_dark and starship designs, black paper background, settings save/restore scripts, fix: sliders no longer reset on restart
 - **Content boundaries:** no copyrighted characters or recognisable franchise elements. Declined requests:
   - Spider-Man style → offered and built the comic design instead.
   - Iron Man style → mech cockpit instead.
+  - Star Trek: The Next Generation look → original `starship` bridge design instead (no franchise interface style, insignia, ships or terms).
   - A Mario-like platformer and a Mario-described character → original platformer world and the fox instead.
   - Digital rain is a generic "falling code" style with no film references.
   - Art designs are original pixel art *in the style of* the artists, not copies of specific paintings.

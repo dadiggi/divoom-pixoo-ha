@@ -28,6 +28,8 @@ input_select:
       - platformer
       - purist                  # clean and clear: every value labelled, maximum legibility
       - kid                     # drawn by a five-year-old with crayons
+      - kid_dark                # the same child with gel pens on black paper (far fewer lit LEDs)
+      - starship                # original starship bridge: viewport onto space, crew-station consoles
       - rotate                  # a different design every rotation interval
       - rotate (no classic)
   # HOW it is coloured - works with every design
@@ -76,6 +78,7 @@ input_select:
       - burgundy
       - ocean
       - white paper
+      - black paper
       - kraft paper
       - notebook
       - graph paper
@@ -100,6 +103,9 @@ input_select:
       - english
       - hrvatski
 
+# All helpers below keep their values across restarts (Home Assistant restores them; none of
+# them sets "initial", which would reset it on every restart). On the very first start the
+# "first run" automation sets the motion sliders to their defaults (5 / 3 / 3 / 3).
 input_number:
   # MOVING PARTS - how much moves: 0 still image ... 5 everything moves
   #   1 indicators only (running machines, rain, current weather icon)  2 + gauges, forecast icons
@@ -110,7 +116,6 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 5
     mode: slider
   # MOVING PARTS - speed: 0 slow (4 s per cycle) ... 3 original (2 s) ... 5 fast (1 s)
   pixoo_motion_speed:
@@ -119,7 +124,6 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 3
     mode: slider
   # EFFECTS (glints, shimmer, glitches, sparkles, scan lines, theme snow/bats/embers):
   # 0 never, 1 rare (1 in 4 minutes), 2 occasional, 3 every loop (original), 4-5 frequent
@@ -129,7 +133,6 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 3
     mode: slider
   # EFFECTS - speed of each effect: 0 slow sweeps ... 5 quick flashes
   pixoo_effects_speed:
@@ -138,13 +141,120 @@ input_number:
     min: 0
     max: 5
     step: 1
-    initial: 3
     mode: slider
+
+input_boolean:
+  pixoo_initialized:
+    name: Pixoo defaults applied
+    icon: mdi:check-decagram
+
+input_text:
+  # Snapshot of all Pixoo settings, written by script.pixoo_save_settings (survives restarts)
+  pixoo_saved_settings:
+    name: Pixoo saved settings
+    icon: mdi:content-save-cog
+    max: 255
+
+script:
+  pixoo_save_settings:
+    alias: Pixoo – save current settings
+    icon: mdi:content-save
+    sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.pixoo_saved_settings
+        data:
+          value: >-
+            {{ {'d': states('input_select.pixoo_design'), 't': states('input_select.pixoo_theme'),
+                'r': states('input_select.pixoo_rotation'), 'c': states('input_select.pixoo_colors'),
+                'b': states('input_select.pixoo_background'), 'l': states('input_select.pixoo_language'),
+                'm': states('input_number.pixoo_motion_level') | float(5) | int,
+                'ms': states('input_number.pixoo_motion_speed') | float(3) | int,
+                'f': states('input_number.pixoo_effects_frequency') | float(3) | int,
+                'fs': states('input_number.pixoo_effects_speed') | float(3) | int} | to_json }}
+
+  pixoo_restore_settings:
+    alias: Pixoo – restore saved settings
+    icon: mdi:backup-restore
+    sequence:
+      - condition: template
+        value_template: "{{ states('input_text.pixoo_saved_settings').startswith('{') }}"
+      - variables:
+          s: "{{ states('input_text.pixoo_saved_settings') | from_json }}"
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_design}
+        data: {option: "{{ s.d }}"}
+        continue_on_error: true
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_theme}
+        data: {option: "{{ s.t }}"}
+        continue_on_error: true
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_rotation}
+        data: {option: "{{ s.r }}"}
+        continue_on_error: true
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_colors}
+        data: {option: "{{ s.c }}"}
+        continue_on_error: true
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_background}
+        data: {option: "{{ s.b }}"}
+        continue_on_error: true
+      - action: input_select.select_option
+        target: {entity_id: input_select.pixoo_language}
+        data: {option: "{{ s.l }}"}
+        continue_on_error: true
+      - action: input_number.set_value
+        target: {entity_id: input_number.pixoo_motion_level}
+        data: {value: "{{ s.m }}"}
+        continue_on_error: true
+      - action: input_number.set_value
+        target: {entity_id: input_number.pixoo_motion_speed}
+        data: {value: "{{ s.ms }}"}
+        continue_on_error: true
+      - action: input_number.set_value
+        target: {entity_id: input_number.pixoo_effects_frequency}
+        data: {value: "{{ s.f }}"}
+        continue_on_error: true
+      - action: input_number.set_value
+        target: {entity_id: input_number.pixoo_effects_speed}
+        data: {value: "{{ s.fs }}"}
+        continue_on_error: true
+
+  pixoo_reset_motion:
+    alias: Pixoo – reset motion and effects to defaults
+    icon: mdi:restore
+    sequence:
+      - action: input_number.set_value
+        target: {entity_id: input_number.pixoo_motion_level}
+        data: {value: 5}
+      - action: input_number.set_value
+        target: {entity_id: [input_number.pixoo_motion_speed, input_number.pixoo_effects_frequency,
+                             input_number.pixoo_effects_speed]}
+        data: {value: 3}
 
 shell_command:
   pixoo_animated_render: "python3 /config/pixoo/pixoo_render.py {{ payload }}"
 
 automation:
+  - id: pixoo_first_run_defaults
+    alias: Pixoo – first run defaults
+    description: Sets the motion sliders to 5/3/3/3 once, on the first start after installing the package
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.pixoo_initialized
+        state: "off"
+    actions:
+      - action: script.pixoo_reset_motion
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.pixoo_initialized
+
   - id: pixoo_render_animated_pages
     alias: Pixoo – render animated pages
     description: Renders /config/www/pixoo/*.gif for the Pixoo 64
