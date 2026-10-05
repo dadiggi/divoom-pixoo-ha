@@ -19,9 +19,12 @@ input_select:
       - van_gogh
       - hokusai
       - klimt
+      - digital_rain
+      - block_3d
+      - hud
       - rotate daily            # cycles classic + all art designs, one per day
       - rotate hourly
-      - rotate daily (art only)
+      - rotate daily (art only)   # all designs except classic
   pixoo_theme:
     name: Pixoo theme (classic design)
     icon: mdi:palette

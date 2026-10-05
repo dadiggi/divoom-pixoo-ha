@@ -5,6 +5,13 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
 ![Neon theme](docs/previews/theme_neon.gif)
 
+**FX designs:** three designs with their own fonts and layouts.
+
+| | | |
+|---|---|---|
+| **digital_rain**: falling glyph code; terminal readouts; the rain gets heavier when it actually rains | **block_3d**: perspective room with moving floor grid; extruded 3D numbers; isometric appliances; shaded spheres; forecast as 3D bars | **hud**: holographic interface; 270° ring gauges with 7-segment digits; radar sweep; sun travelling its real day-arc; forecast as a glowing line chart |
+| ![](docs/previews/design_digital_rain.gif) | ![](docs/previews/design_block_3d.gif) | ![](docs/previews/design_hud.gif) |
+
 **Art designs:** four complete redesigns in the style of famous artists. These are original pixel art, not copies of specific paintings.
 
 | | |
@@ -61,7 +68,7 @@ The script needs only Pillow, which already ships with Home Assistant. One rende
 
 | Helper | What it does |
 |---|---|
-| `input_select.pixoo_design` | `classic` (tiles), `mondrian`, `van_gogh`, `hokusai`, `klimt`, `rotate daily`, `rotate hourly`, or `rotate daily (art only)`. |
+| `input_select.pixoo_design` | `classic` (tiles), `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `rotate daily`, `rotate hourly`, or `rotate daily (art only)`. |
 | `input_select.pixoo_theme` | Colour theme for the classic design. Changes apply within a second. |
 | `input_select.pixoo_colors` | `vivid` (default), `extra vivid`, `soft` or `off`. Pick what looks best at your brightness. |
 
