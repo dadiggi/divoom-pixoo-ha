@@ -107,6 +107,8 @@ Constants at the top of `pixoo_render.py`: `FRAMES` / `FRAME_MS` (animation leng
 - **Colours look too dark or too bright:** switch `Pixoo colour boost` to `soft` or `extra vivid`.
 - **Nothing updates:** look in *Settings → System → Logs* for `pixoo_render` warnings.
 
+**Project notes** (full context for contributors): [docs/PROJECT_NOTES.md](docs/PROJECT_NOTES.md)
+
 ## Legacy
 
 `legacy/` contains the earlier static `components` page versions (flat and 3D). They don't need a script, but they also can't animate or use themes.
