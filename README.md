@@ -9,7 +9,7 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
 | | | |
 |---|---|---|
-| **comic**: halftone panels with slanted gutters, speech bubbles, action bursts, captions | **mech**: steel bulkhead, amber CRT screens with scanlines, analog air-quality needle, annunciator lamps | **platformer**: original 8-bit world; air quality as health hearts, wooden signs, a robot hero, gems, forecast on floating islands |
+| **comic**: halftone panels with slanted gutters, speech bubbles, action bursts, captions | **mech**: steel bulkhead, amber CRT screens with scanlines, analog air-quality needle, annunciator lamps | **platformer**: original 8-bit world; air quality as health hearts, wooden signs, a fox hero (teal scarf, lantern at night, hood up when rain is coming, happy spin when the laundry is done), gems, forecast on floating islands |
 | ![](docs/previews/design_comic.gif) | ![](docs/previews/design_mech.gif) | ![](docs/previews/design_platformer.gif) |
 
 

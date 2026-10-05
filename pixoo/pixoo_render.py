@@ -3969,11 +3969,16 @@ def render_weather_mech(d, f):
 PL_INK = (20, 14, 24)
 PL_WOOD, PL_WOOD_D, PL_WOOD_L = (200, 140, 78), (96, 58, 26), (236, 190, 120)
 PL_GRASS, PL_GRASS_L, PL_DIRT, PL_DIRT_D = (60, 190, 70), (140, 240, 110), (150, 92, 50), (110, 64, 34)
-HERO = {
-    "stand": ["...a...", "..ggg..", ".ggggg.", ".gvvvg.", ".ggggg.", "..ooo..", ".oooo o", ".k...k."],
-    "walk": ["...a...", "..ggg..", ".ggggg.", ".gvvvg.", ".ggggg.", "..ooo..", "o.ooo..", "..k.k.."],
-    "jump": ["...a...", "..ggg..", ".ggggg.", ".gvvvg.", ".ggggg.", "o.ooo.o", "..ooo..", ".k...k."],
+# Original hero: a little fox adventurer with a teal scarf (10x8, facing right)
+FOX = {
+    "stand": ["...o...o..", "...oo.oo..", "...ooooo..", "...oooko..", "...owwwwwn", "..tttttt..",
+              "woooooo...", "...k..k..."],
+    "walk":  ["...o...o..", "...oo.oo..", "...ooooo..", "...oooko..", "...owwwwwn", "..tttttt..",
+              "woooooo...", "....kk...."],
+    "jump":  ["...o...o..", "...oo.oo..", "...ooooo..", "...oooko..", "wo.owwwwwn", ".otttttt..",
+              "...oooo...", "..k....k.."],
 }
+FOX_HOOD = ["...tttt...", "..tttttt..", "..toooot.."]          # hood up when rain is expected
 HEART = [".#.#.", "#####", "#####", ".###.", "..#.."]
 
 
@@ -4045,24 +4050,43 @@ def pl_sign(cv, x, y, w, h, ropes=True):
         cv.px(nx, ny, (90, 90, 100))                                 # nails
 
 
-def pl_hero(cv, x, y, pose, f, flip=False):
-    pal = {"a": (255, 80, 80) if (f // 2) % 2 else (255, 220, 80), "g": (200, 205, 215), "v": (60, 220, 255),
-           "o": (255, 150, 40), "k": (60, 50, 60)}
-    rows = HERO[pose]
+def pl_hero(cv, x, y, pose, f, flip=False, night=False, hood=False):
+    """The fox: fluttering scarf, glowing lantern at night, hood up when rain is coming."""
+    pal = {"o": (240, 130, 40), "w": (250, 240, 225), "k": (40, 25, 20), "n": (30, 20, 20),
+           "t": (40, 195, 185)}
+    rows = list(FOX[pose])
+    if hood:
+        rows[0:3] = FOX_HOOD
+    W = len(rows[0])
+    # scarf tail streams behind (left) and flutters
+    tail_row = 5 if (f // 2) % 2 else 6
+    tail = [(1, tail_row), (0, tail_row + (1 if (f // 2) % 2 else -1))]
+    lamp = None
+    if night:
+        lamp = (8, 6)
+
+    def put(i, j, c):
+        xx = x + (W - 1 - i if flip else i)
+        cv.px(xx, y + j, c)
+
     for j, r in enumerate(rows):
-        r = r[::-1] if flip else r
         for i, ch in enumerate(r):
             if ch in pal:
-                cv.px(x + i, y + j, pal[ch])
-    for j, r in enumerate(rows):                                     # 1-px dark outline
-        r = r[::-1] if flip else r
-        for i, ch in enumerate(r):
-            if ch in pal:
-                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    jj, ii = j + dy, i + dx
-                    if not (0 <= jj < len(rows) and 0 <= ii < len(r)) or (rows[jj][::-1] if flip else rows[jj])[ii] not in pal:
-                        if cv.get(x + ii, y + jj) not in pal.values():
-                            pass
+                put(i, j, pal[ch])
+    for (i, j) in tail:
+        if 0 <= j < 8:
+            put(i, j, shade(pal["t"], -0.15))
+    if lamp:
+        lx = x + (W - 1 - lamp[0] if flip else lamp[0])
+        ly = y + lamp[1]
+        g = pulse(f, 0.25, 0.65)
+        for dx in range(-3, 4):
+            for dy in range(-3, 4):
+                dd = math.hypot(dx, dy)
+                if 0 < dd <= 3:
+                    cv.px(lx + dx, ly + dy, mix(cv.get(lx + dx, ly + dy), (255, 210, 90), g * (1 - dd / 3.5)))
+        cv.px(lx, ly - 1, (90, 70, 40))
+        cv.px(lx, ly, (255, 235, 140))
 
 
 def pl_gem(cv, x, y, f, col=(80, 230, 255)):
@@ -4175,16 +4199,28 @@ def render_dashboard_platformer(d, f, variant=0):
             cv.text(x + 10, 39, str(t or "--:--"), (70, 36, 14), align="center", shadow=False)
             tri(cv, x + 8, 51, (UP if x == 2 else DOWN)[0], col)
         hx = 22 + round(8 * math.sin(2 * math.pi * f / FRAMES))
-        pl_hero(cv, hx, 40, "walk" if f % 2 else "stand", f, flip=math.cos(2 * math.pi * f / FRAMES) < 0)
+        out = rain_outlook(d)
+        pl_hero(cv, hx, 40, "walk" if f % 2 else "stand", f, flip=math.cos(2 * math.pi * f / FRAMES) < 0,
+                night=str(d.get("sun", "")) == "below_horizon", hood=bool(out and out[0]))
     else:
         for x, a2 in zip((4, 26, 48), appl_list(d)):
             pl_machine(cv, x, 35, a2, f)
             c = {"run": (120, 230, 255), "done": (255, 230, 80), "err": (255, 80, 80)}.get(a2["k"], (230, 230, 230))
             cv.text(x + 5, 54, a2["label"], c, align="center", outline=PL_INK)
-        # hero hops in the gap between the washer and the dryer
+        # the fox hops between washer and dryer - and does a happy spin when a load is finished
+        apps = appl_list(d)
+        happy = any(a2["k"] == "done" for a2 in apps[:2])
+        out = rain_outlook(d)
+        hood = bool(out and out[0])
+        night = str(d.get("sun", "")) == "below_horizon"
         jump = [0, 0, 0, 0, 2, 4, 5, 5, 4, 2, 0, 0, 0, 0, 0, 0][f]
-        pl_hero(cv, 17, 40 - jump, "jump" if jump else "stand", f)
-        if 4 <= f <= 8:
+        flip = happy and (f // 2) % 2 == 1
+        pl_hero(cv, 15, 40 - jump, "jump" if jump else "stand", f, flip=flip, night=night, hood=hood)
+        if happy and jump:
+            for k_, (dx, dy) in enumerate(((-2, -2), (11, -1), (5, -4))):
+                if (f + k_) % 2:
+                    cv.px(15 + dx, 40 - jump + dy, (255, 230, 90))
+        elif 4 <= f <= 8:
             pl_gem(cv, 18, 31, f, (255, 220, 60))
     return cv.img
 
