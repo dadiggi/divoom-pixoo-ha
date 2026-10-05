@@ -26,6 +26,8 @@ input_select:
       - comic
       - mech
       - platformer
+      - purist                  # clean and clear: every value labelled, maximum legibility
+      - kid                     # drawn by a five-year-old with crayons
       - rotate                  # a different design every rotation interval
       - rotate (no classic)
   # HOW it is coloured - works with every design
@@ -60,6 +62,84 @@ input_select:
       - extra vivid
       - soft
       - "off"
+  # Background for classic, hud, digital_rain, block_3d, mech, purist and kid
+  # (art designs - mondrian, van_gogh, hokusai, klimt, comic, platformer - keep their own scenery)
+  pixoo_background:
+    name: Pixoo background
+    icon: mdi:texture-box
+    options:
+      - design default
+      - black
+      - midnight
+      - charcoal
+      - forest
+      - burgundy
+      - ocean
+      - white paper
+      - kraft paper
+      - notebook
+      - graph paper
+      - blueprint
+      - chalkboard
+      - wood
+      - brick
+      - carbon
+      - denim
+      - linen
+      - terrazzo
+      - starfield
+      - day sky
+      - sunset
+      - polka dots
+      - stripes
+  # Label language of the purist and kid designs
+  pixoo_language:
+    name: Pixoo label language
+    icon: mdi:translate
+    options:
+      - english
+      - hrvatski
+
+input_number:
+  # MOVING PARTS - how much moves: 0 still image ... 5 everything moves
+  #   1 indicators only (running machines, rain, current weather icon)  2 + gauges, forecast icons
+  #   3 + scenery (sky, waves, clouds)  4 + characters and decor  5 + hand-drawn line boil
+  pixoo_motion_level:
+    name: Pixoo moving parts
+    icon: mdi:motion
+    min: 0
+    max: 5
+    step: 1
+    initial: 5
+    mode: slider
+  # MOVING PARTS - speed: 0 slow (4 s per cycle) ... 3 original (2 s) ... 5 fast (1 s)
+  pixoo_motion_speed:
+    name: Pixoo moving parts speed
+    icon: mdi:speedometer
+    min: 0
+    max: 5
+    step: 1
+    initial: 3
+    mode: slider
+  # EFFECTS (glints, shimmer, glitches, sparkles, scan lines, theme snow/bats/embers):
+  # 0 never, 1 rare (1 in 4 minutes), 2 occasional, 3 every loop (original), 4-5 frequent
+  pixoo_effects_frequency:
+    name: Pixoo effects frequency
+    icon: mdi:shimmer
+    min: 0
+    max: 5
+    step: 1
+    initial: 3
+    mode: slider
+  # EFFECTS - speed of each effect: 0 slow sweeps ... 5 quick flashes
+  pixoo_effects_speed:
+    name: Pixoo effects speed
+    icon: mdi:flash-outline
+    min: 0
+    max: 5
+    step: 1
+    initial: 3
+    mode: slider
 
 shell_command:
   pixoo_animated_render: "python3 /config/pixoo/pixoo_render.py {{ payload }}"
@@ -81,6 +161,12 @@ automation:
           - input_select.pixoo_theme
           - input_select.pixoo_rotation
           - input_select.pixoo_colors
+          - input_select.pixoo_background
+          - input_select.pixoo_language
+          - input_number.pixoo_motion_level
+          - input_number.pixoo_motion_speed
+          - input_number.pixoo_effects_frequency
+          - input_number.pixoo_effects_speed
           - sensor.netatmo_smart_thermostat_current_temperature
           - sensor.outdoor_module_temperature
           - sensor.wellbeing_electrolux_air_purifier_humidity
@@ -141,6 +227,12 @@ automation:
               'theme':  states('input_select.pixoo_theme'),
               'rotation': states('input_select.pixoo_rotation'),
               'vivid':  states('input_select.pixoo_colors'),
+              'background': states('input_select.pixoo_background'),
+              'lang':   states('input_select.pixoo_language'),
+              'motion': states('input_number.pixoo_motion_level') | float(5) | int,
+              'motion_speed': states('input_number.pixoo_motion_speed') | float(3) | int,
+              'fx':     states('input_number.pixoo_effects_frequency') | float(3) | int,
+              'fx_speed': states('input_number.pixoo_effects_speed') | float(3) | int,
               't_in':   states('sensor.netatmo_smart_thermostat_current_temperature'),
               't_out':  states('sensor.outdoor_module_temperature'),
               'h_in':   states('sensor.wellbeing_electrolux_air_purifier_humidity'),

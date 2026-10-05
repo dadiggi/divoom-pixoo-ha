@@ -27,6 +27,15 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 | **Hokusai**: woodblock paper, gradient skies, title cartouches, red seal stamp, paper umbrella, rolling waves | **Klimt**: shimmering gold-leaf mosaic with spirals and gem tiles, black panels, gold-leaf numbers |
 | ![](docs/previews/design_hokusai.gif) | ![](docs/previews/design_klimt.gif) |
 
+**Purist and kid designs:** two opposites.
+
+| | |
+|---|---|
+| **purist**: clean and clear for people who just want the numbers. Every value has a label and a unit, statuses are words (RUNNING, DONE, IDLE FOR 2H), dates and conditions are spelled out, and the fonts were drawn for legibility (square 0 vs round O, S vs 5, Z vs 2, B vs 8, open-top 4). Colour only where it carries meaning (air quality, rain, appliance state). | **kid**: drawn by a five-year-old with crayons on white paper. A house and a tree for indoor/outdoor, a crayon face for air quality, a purple umbrella (or a sun in sunglasses), smiling suns, wobbly hand-written numbers, scribbled colouring that goes over the lines, and machines with gold-star stickers when they're done. On a dark background it switches to chalk. |
+| ![](docs/previews/design_purist.gif) | ![](docs/previews/design_kid.gif) |
+| *purist, Hrvatski labels, white paper* | *kid, Hrvatski labels, chalkboard, at night* |
+| ![](docs/previews/design_purist_hr_paper.gif) | ![](docs/previews/design_kid_chalkboard.gif) |
+
 ## Features
 
 - **Two animated pages**: a home dashboard and a weather page with a 4-day forecast.
@@ -39,6 +48,9 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
   ![Idle cards](docs/previews/idle_cards.gif)
 - **Weather page:** Croatian day names (PO, UT, SR, ČE, PE, SU, NE). Every icon moves, at both sizes: clouds drift, the sun's rays turn, the moon bobs and glows, and rain, snow, lightning, fog and wind animate. Plus the current temperature in 3D gradient digits, today's high/low and a 4-day forecast.
 - **Themes for every design:** `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, or the design's `original` look. `seasonal (auto)` switches to Halloween from Oct 24–31 and to Christmas from Dec 1 to Jan 6. Design and theme can each rotate hourly, every 6 hours or daily.
+- **Motion controls for every design:** choose how much moves and how fast, and separately how often and how fast effects happen, from a completely still image to everything moving. See [Motion](#motion).
+- **Backgrounds:** 23 backgrounds (solid colours, papers, chalkboard, wood, brick, carbon, denim, starfield, skies, patterns) for the designs that don't paint their own scenery. See [Backgrounds](#backgrounds).
+- **Label language:** the purist and kid designs can be labelled in English or Hrvatski.
 - **Colour boost for low brightness:** gamma and saturation correction so colours stay vivid instead of washing out on a dimmed panel.
 - **Repaired pixel font:** the integration's `pico_8` table has ~36 glyphs cut to 4 rows (O, F, S, P, T…). The renderer ships fixed versions.
 
@@ -52,9 +64,9 @@ and shown through the [divoom_pixoo integration](https://github.com/gickowtf/pix
 
 A Home Assistant automation collects sensor states and the weather forecast. Every minute, and on every change, it passes them to `pixoo_render.py` through `shell_command`.
 
-The script draws 16-frame GIFs into `/config/www/pixoo/`, which HA serves at `/local/pixoo/`. The integration's `gif` pages then tell the Pixoo to download and loop them on the device, so animation is smooth and nothing streams per frame.
+The script draws GIFs (16–32 frames, or a single frame when everything is set to still) into `/config/www/pixoo/`, which HA serves at `/local/pixoo/`. The integration's `gif` pages then tell the Pixoo to download and loop them on the device, so animation is smooth and nothing streams per frame.
 
-The script needs only Pillow, which already ships with Home Assistant. One render takes about 0.5 s.
+The script needs only Pillow, which already ships with Home Assistant. One run (all pages) takes about 0.5–2 s on a desktop at default motion settings; the slowest motion speeds use longer loops and take up to about twice as long.
 
 ## Installation
 
@@ -72,20 +84,66 @@ The script needs only Pillow, which already ships with Home Assistant. One rende
 
 ## Settings
 
-Four independent dropdowns:
-
 | Helper | What it controls |
 |---|---|
-| `input_select.pixoo_design` | **What it looks like**: layout and art style. `classic`, `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `comic`, `mech`, `platformer`, `rotate`, `rotate (no classic)`. |
+| `input_select.pixoo_design` | **What it looks like**: layout and art style. `classic`, `mondrian`, `van_gogh`, `hokusai`, `klimt`, `digital_rain`, `block_3d`, `hud`, `comic`, `mech`, `platformer`, `purist`, `kid`, `rotate`, `rotate (no classic)`. |
 | `input_select.pixoo_theme` | **How it's coloured**, for every design. `original` (the design's own colours), `seasonal (auto)`, `neon`, `steel`, `synthwave`, `crimson_desert`, `christmas`, `halloween`, `retro_platformer`, `rotate`. |
 | `input_select.pixoo_rotation` | **How often** design and/or theme change when set to `rotate`: `daily`, `every 6 hours`, `hourly`. |
 | `input_select.pixoo_colors` | **Panel calibration**, not a style: `vivid` (default), `extra vivid`, `soft`, `off`. |
+| `input_select.pixoo_background` | **Background** for classic, hud, digital_rain, block_3d, mech, purist and kid. `design default` keeps the design's own. |
+| `input_select.pixoo_language` | Labels of the purist and kid designs: `english`, `hrvatski`. |
+| `input_number.pixoo_motion_level` | **Moving parts**, 0–5: how much moves (default 5). |
+| `input_number.pixoo_motion_speed` | **Moving parts speed**, 0–5 (default 3 = original speed). |
+| `input_number.pixoo_effects_frequency` | **Effects frequency**, 0–5: how often effects happen (default 3). |
+| `input_number.pixoo_effects_speed` | **Effects speed**, 0–5 (default 3). |
+
+The defaults reproduce the original look and pace.
+
+### Motion
+
+Everything that moves is either a **moving part** or an **effect**.
+
+**Moving parts** are things that live in the picture. The level decides which of them move; the rest freeze in a natural pose (forecast bars fully grown, signs hanging straight, the fox standing):
+
+| Level | What moves |
+|---|---|
+| 0 | Nothing: a single still image (also the lightest load for the Pixoo). |
+| 1 | Only indicators that carry meaning: running or finished machines, blinking errors, the current weather icon, the rain umbrella. |
+| 2 | + small life: forecast icons, sun cards, gauges, needles, rings, hearts, the kid's blinking air-quality face. |
+| 3 | + scenery: skies, waves, clouds, wheat, mosaics, the 3D room grid, falling code, chimney smoke. |
+| 4 | + characters and decor: the platformer fox and swinging signs, Mondrian's running squares, comic bursts, hazard stripes, the kid's bird. |
+| 5 | Everything, including the kid design's hand-drawn "line boil". |
+
+Speed 0 is a slow 4-second cycle, 3 the original 2 seconds, 5 a quick 1 second.
+
+**Effects** are highlights on top: glint sweeps over numbers, Klimt's gold shimmer, HUD glitches and scan lines, the CRT rolling band, sparkles and glitter, and theme particles (snow, embers, bats, stars). Frequency 0 turns them off; 1 shows them in about one minute out of four, 2 every other minute, 3 once per loop (original), 4 and 5 several times per loop. Continuous effects such as scan lines and theme snow run whenever frequency is 1 or more and get denser as it rises. Effects speed 0 makes each sweep slow and long, 5 a quick flash.
+
+Values are never animated into wrong digits at any setting.
+
+![Motion levels 0 to 5 on the platformer design](docs/previews/motion_levels.gif)
+
+*Moving-parts level 0 → 5 (left to right), effects off.*
+
+### Backgrounds
+
+`black`, `midnight`, `charcoal`, `forest`, `burgundy`, `ocean`, `white paper`, `kraft paper`, `notebook`, `graph paper`, `blueprint`, `chalkboard`, `wood`, `brick`, `carbon`, `denim`, `linen`, `terrazzo`, `starfield`, `day sky`, `sunset`, `polka dots`, `stripes`.
+
+![Backgrounds](docs/previews/backgrounds.png)
+
+- **classic, hud, digital_rain, block_3d, mech:** bright backgrounds are dimmed automatically so the light text stays readable (on classic the background shows through the tiles, on block_3d it becomes the back wall).
+- **purist:** the pattern is softened, and the ink switches between dark-on-light and light-on-dark to suit the background. Default: `black`.
+- **kid:** used as is; on dark backgrounds the crayons turn into chalk. Default: `white paper`.
+- **mondrian, van_gogh, hokusai, klimt, comic, platformer** keep their own scenery, because there the backdrop *is* the artwork (and the platformer sky shows the time of day and weather).
+
+Themes still apply on top of a background.
+
+![Backgrounds on designs](docs/previews/backgrounds_on_designs.png)
 
 On the classic design, themes are hand-tuned palettes. On every other design, a theme recolours the background, frames and artwork towards its palette and adds its decorations (snow, string lights, bats, embers…). Text, numbers and colour-coded indicators (AQI colours, status lamps, health hearts) are never recoloured, so their meaning stays intact.
 
 ![Themes on every design](docs/previews/themes_on_every_design.png)
 
-Constants at the top of `pixoo_render.py`: `FRAMES` / `FRAME_MS` (animation length and speed), `NIGHT_DIM` (global dimming), and `RAIN_PROB` / `RAIN_MM` (umbrella threshold).
+Constants at the top of `pixoo_render.py`: `FRAME_MS` (GIF frame time), `NIGHT_DIM` (global dimming), and `RAIN_PROB` / `RAIN_MM` (umbrella threshold).
 
 ### Expected data
 

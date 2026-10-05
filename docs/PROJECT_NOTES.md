@@ -50,17 +50,17 @@ Pixoo integration: two page_type: gif pages download the GIFs from /local/pixoo/
 **Why this design:** a `components` page in the integration is pushed as one still frame (`PicNum: 1`), so it can't animate. A `gif` page makes the Pixoo download and loop a GIF itself, so animation is smooth and nothing streams per frame.
 
 **GIF format:**
-- 64×64, 16 frames × 125 ms (2 s loop).
+- 64×64, `MO.L` frames × 125 ms: 16 at default settings (2 s loop), up to 32 for slow speeds, 1 when moving parts and effects are both 0. Pillow merges identical consecutive frames, so still stretches cost nothing.
 - One shared 255-colour palette (median cut, no dithering).
 - Typically 10–55 KB per file.
 - Written atomically (tmp file + `os.replace`).
 
-**Render time:** about 0.7–2.1 s per run on a desktop. Van Gogh plus a theme is the heaviest. Pillow is the only dependency and already ships with HA.
+**Render time:** about 0.7–2.1 s per run on a desktop at default motion; slow motion speeds (24–32 frames) up to ~3.5 s. Van Gogh/comic plus a theme are the heaviest. Pillow is the only dependency and already ships with HA.
 
 ### Repository layout
 
 ```
-pixoo/pixoo_render.py                       the renderer (~4,500 lines, single file)
+pixoo/pixoo_render.py                       the renderer (~5,700 lines, single file)
 homeassistant/packages/pixoo_animated.yaml  HA package: helpers, shell_command, automation
 homeassistant/pixoo_pages.yaml              paste into the Pixoo integration page list
 legacy/components_flat.yaml                 first static components-page version (no script)
@@ -96,10 +96,18 @@ The `?v=` part is a cache-buster.
 
 | Helper | Options | Meaning |
 |---|---|---|
-| `input_select.pixoo_design` | classic, mondrian, van_gogh, hokusai, klimt, digital_rain, block_3d, hud, comic, mech, platformer, rotate, rotate (no classic) | **What** it looks like (layout + style) |
+| `input_select.pixoo_design` | classic, mondrian, van_gogh, hokusai, klimt, digital_rain, block_3d, hud, comic, mech, platformer, purist, kid, rotate, rotate (no classic) | **What** it looks like (layout + style) |
 | `input_select.pixoo_theme` | original, seasonal (auto), neon, steel, synthwave, crimson_desert, christmas, halloween, retro_platformer, rotate | **How** it's coloured; works on **every** design |
 | `input_select.pixoo_rotation` | daily, every 6 hours, hourly | Interval used when design and/or theme = `rotate` (they rotate independently, theme offset by 3) |
 | `input_select.pixoo_colors` | vivid (recommended), extra vivid, soft, off | LED calibration (gamma + saturation); not a style |
+| `input_select.pixoo_background` | design default + 23 backgrounds (black, midnight, charcoal, forest, burgundy, ocean, white paper, kraft paper, notebook, graph paper, blueprint, chalkboard, wood, brick, carbon, denim, linen, terrazzo, starfield, day sky, sunset, polka dots, stripes) | Background for classic, hud, digital_rain, block_3d, mech, purist, kid. Art designs keep their own (owner's choice). |
+| `input_select.pixoo_language` | english, hrvatski | Labels of purist and kid |
+| `input_number.pixoo_motion_level` | 0–5 (default 5) | Moving parts: how much moves |
+| `input_number.pixoo_motion_speed` | 0–5 (default 3) | Moving parts speed |
+| `input_number.pixoo_effects_frequency` | 0–5 (default 3) | How often effects happen |
+| `input_number.pixoo_effects_speed` | 0–5 (default 3) | Effect speed |
+
+Defaults (5/3/3/3, design default background) reproduce the pre-motion-control output; only the effects moved to the event scheduler changed slightly (AQI shine, Klimt shimmer, rain sweeps, HUD glitch timing).
 
 **`seasonal (auto)`** is `original` most of the year, `halloween` from Oct 24–31 and `christmas` from Dec 1 to Jan 6. The legacy values `auto`, `rotate daily`, `rotate hourly` and `rotate daily (art only)` are still parsed.
 
@@ -110,6 +118,8 @@ The `?v=` part is a cache-buster.
 | Key | Contents |
 |---|---|
 | `design`, `theme`, `rotation`, `vivid` | The helper values |
+| `background`, `lang` | Background name, label language |
+| `motion`, `motion_speed`, `fx`, `fx_speed` | Motion helpers as ints (template uses `| float(default) | int`, so unknown states fall back to defaults; the script clamps to 0–5) |
 | `t_in`, `t_out`, `h_in`, `h_out`, `aqi` | Raw sensor states |
 | `wm`, `td`, `pr` | Appliance states |
 | `wm_age`, `td_age`, `pr_age` | Seconds since `last_changed` (resets on HA restart) |
@@ -155,6 +165,9 @@ The `?v=` part is a cache-buster.
 | **mech** | Steel bulkhead, amber CRT screens (scanlines, rolling band, glow), analog AQI needle dial, annunciator lamps (amber run, green done, red error blinking, blue rain, green dry), hazard stripe, NAV sun screen. |
 | **platformer** | Original 8-bit world: AQI as 5 health hearts, temperatures on swinging wooden signs, parallax hills and clouds, sky follows time of day and weather, machines with bubbles and steam, spinning gems, forecast on floating islands. |
 
+| **purist** | Clean and clear. Column headers TEMP / HUMID, labelled rows IN/OUT (SOBA/VANI), AQI number in its category colour + category word, "RAIN TODAY 17:00" (first rainy hour) or NO, appliance rows with words (RUNNING, DONE, IDLE FOR 2H, 62% 1H25). Weather: 2× clock, full day name + date with month name (no 4.10 ambiguity), current temp + ↑high ↓low, condition in words, 4-day table with 3-letter days, small calm icons, ↑/↓ temps. `fit()` picks the longest wording that fits. Ink adapts to the background (dark on light, light on dark); text gets a halo in the background's mean colour. |
+| **kid** | Crayon drawing on white paper: house (IN) and tree (OUT) with hand-written temps coloured by warmth, raindrop humidity, AQI as a crayon face (smile → frown), purple umbrella in the rain or a sun in sunglasses, machines as boxes (water sloshing, dryer wiggles, printer toy growing with progress, gold star when done, red ! on error), sun card with smiling suns over a hill and big arrows. Weather: rainbow clock digits (2× crayon font), rainbow day name, big crayon weather drawing, bird flying past (level 4), forecast as little drawings. Crayon texture (paper grain gaps), wobbly circles, scribble fills that overshoot the outline, letters jittered on the line, "line boil" at motion level 5, glitter stars as its effect. Chalk palette on dark backgrounds. Temperatures are whole numbers here (kid style). |
+
 **Platformer hero:** an original **fox** with a teal scarf.
 - The scarf flutters as he moves.
 - At night he carries a glowing lantern.
@@ -171,6 +184,11 @@ The `?v=` part is a cache-buster.
   - `tall`: 3×7 terminal.
   - `seg7()`: 7-segment digits with optional unlit "dim" segments and glow.
   - `ext_text()`: extruded 3D text.
+- **Purist / kid fonts:**
+  - `plain` (3×5 labels): square 0 vs round O, diagonal S vs square 5, diagonal Z vs 2, B vs 8, open-top 4, 5-wide M/W, ↑ ↓ °. Croatian accents via `ACCENTS_FONT["plain"]`.
+  - `clear` (4×7 values) and `clear2` (2× clock).
+  - `crayon` (5×7 lopsided handwriting digits) and `crayon2` (2×).
+  - `ACCENTS_FONT` overrides `ACCENTS` per font; `Canvas.glyph` and `_text` look it up.
 - **Text rule learned the hard way:** captions, lamps and bubbles need **≥ 1 px padding** between text and their border, or the letters merge with the frame.
 
 ---
@@ -194,6 +212,26 @@ The `?v=` part is a cache-buster.
 
 ---
 
+## 7b. Motion system
+
+- **`Motion` class, global `MO`.** `configure(level, mspeed, freq, espeed, seed)` once per page; `main()` sets `MO.g` (GIF frame) for each frame.
+  - Loop length `MO.L`: speed table `SPEED_P = (32, 24, 20, 16, 12, 8)` GIF frames per 16-frame design cycle; `L = P` (or `2P` for 12/8). Level 0 with effects → 16–32; both 0 → 1 frame.
+  - `MO.m(tier, rest=0)`: design frame (int 0–15) for a moving part of that tier, or the rest pose when `level < tier`. `MO.still(tier)` for inline checks.
+  - `MO.e()`: continuous effect clock (0 when effects are off). `MO.fx`: effects enabled. `MO.density()`: particle density by frequency.
+  - `MO.event(salt)`: progress 0–1 while an effect event runs, else None. Events per loop from the frequency; frequency 1/2 are gated by `seed % 4` / `seed % 2` (seed = minute of day + page number), so "rare" = some minutes only. Event length from `EVENT_LEN` by effect speed.
+- **Design code still thinks in 16 frames**, so nothing inside the old designs had to change for speed: `f` is mapped by integer stepping. Seamless loops are kept because `L` is always a whole number of cycles.
+- **Tiers without touching call sites:** `MOTION_TIERS` maps helper names to tiers (or a lambda on the bound arguments, e.g. icon size → 1 for the big current icon, 2 for small forecast icons). `_install_motion_tiers()` wraps them with `_timed()`, which replaces the `f` argument by the tier clock while **keeping the caller's phase offset** (`(f + n*3) % FRAMES` staggering) via a stack of `(value, tier, phase)`; a child never moves while its parent is frozen (`max(tier, parent_tier)`). Page functions get `MO.m(RENDER_TIER.get(design, 3))` as their own `f` (platformer/comic: 4).
+- **Effects** read `MO` directly: `glint_pos` (all text glints, rain `r_scan`), AQI gauge shine, `k_glint` + gem sparkle (Klimt), `hud_bg` scan line, `hud_glitch`, `x_screen` CRT band, `decorate()` particles and the christmas edge lights, `kid_glitter`. Static theme ornaments (rivets, light strings, coin) stay when effects are off.
+- **Adding an animated helper:** add its name to `MOTION_TIERS`. Adding an effect: use `MO.event(salt)` / `MO.e()` / `MO.fx`. New designs can call `MO.m(tier)` directly (purist and kid do).
+- **Verification tools used:** a regression diff against the previous renderer at default settings (only the deliberately changed effects differ) and a "motion heatmap" (pixels that change during the loop, per design × level).
+
+## 7c. Backgrounds and language
+
+- `BACKGROUNDS` = name → `fn(x, y) -> rgb` (procedural, static). `BG_DESIGNS` = design → tone: `dark` (classic, hud, digital_rain, block_3d, mech; dimmed so mean luminance ≤ 52), `quiet` (purist; pattern contrast halved), `raw` (kid). `BG_DEFAULT`: purist black, kid white paper.
+- `resolve_background()` → global `BACKDROP` = `{name, pix, mean, light}` or None. `Canvas.__init__` paints it and keeps a per-canvas copy in `cv.bgl`; `is_bg()` treats backdrop pixels as background (so classic theme decorations still find free space). Classic tiles become translucent (`mix(bg, TILE, 0.35)`).
+- Hooks: `hud_bg`, `rain_bg`, `b_room` (back wall only), `x_bulkhead` skip their own fill when `cv.bgl` is set.
+- `LANGS["en"/"hr"]` + `tr(d)`: all purist/kid wording (state words, AQI categories, days, months, conditions, kid words). Helpers: `aqi_level`, `age_short`, `first_rain_hour`, `today_date`, `fc_weekday`, `fit`.
+
 ## 8. Code map (`pixoo/pixoo_render.py`)
 
 - **Constants at the top:** `OUT_DIR`, `FRAMES=16`, `FRAME_MS=125`, `NIGHT_DIM`, `VIVID`, `RAIN_PROB=40`, `RAIN_MM=0.2`.
@@ -205,10 +243,11 @@ The `?v=` part is a cache-buster.
 - **Selection:** `resolve_design`, `resolve_theme`, `rotation_slot`.
 - **`main()` pipeline:** resolve design and theme, then for each frame apply the theme, call the renderer, and run `theme_post` if needed. Then `save_gif` (LED correction + shared palette) and write `status.txt`.
 - **To add a design:**
-  1. Write the two functions.
+  1. Write the two functions (use `MO.m(tier)` for motion, `MO.event()` for effects).
   2. Add the name to `ART_DESIGNS`.
   3. Add it to the `pixoo_design` options in the package.
-  4. Add a README row and a preview.
+  4. If it should accept backgrounds, add it to `BG_DESIGNS` (and skip its own fill when `cv.bgl` is set).
+  5. Add a README row and a preview.
 
 ---
 
@@ -236,6 +275,7 @@ The `?v=` part is a cache-buster.
   6. FX designs: digital rain, block 3D, HUD (+ new fonts)
   7. Comic, mech, platformer; themes on every design; separate rotation interval
   8. Platformer fox hero
+  9. Motion controls (moving parts level/speed, effects frequency/speed), purist and kid designs, 23 selectable backgrounds, English/Hrvatski labels
 - **Content boundaries:** no copyrighted characters or recognisable franchise elements. Declined requests:
   - Spider-Man style → offered and built the comic design instead.
   - Iron Man style → mech cockpit instead.
@@ -248,7 +288,10 @@ The `?v=` part is a cache-buster.
 ## 10. Known caveats and ideas for later
 
 - "Last used" ages restart counting after an HA restart (`last_changed` resets).
-- Mondrian is very bright (white cells), so it may be too much at night.
+- Mondrian is very bright (white cells), so it may be too much at night. The kid design on white paper too (use `chalkboard` at night).
+- Purist's "RAIN TODAY" counts any precipitation (also snow), same rule as the umbrella.
+- Very slow motion speeds double the frames and render time; on slow HA hardware keep speed ≥ 2.
+- Not tested on the physical Pixoo: GIFs up to 32 frames. If the device struggles, keep motion speed at 2–5 (≤ 24 frames).
 - Wind data is still in the payload but unused; it could power a future card.
 - **Ideas not yet built:**
   - Extra idle cards (Bambu nozzle/bed temperature or filament colour, energy today, CO₂, next calendar event, bin day) — needs entity IDs.
