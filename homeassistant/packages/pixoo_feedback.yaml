@@ -6,9 +6,9 @@
 # The animated dashboard keeps using pre-rendered GIF pages; this package uses
 # divoom_pixoo.show_message for fast, temporary 64x64 interaction screens.
 #
-# The show_message service interrupts the normal page rotation. This package
-# explicitly redraws the previously active normal page after each feedback burst,
-# then lets the integration continue its configured page rotation.
+# The show_message service interrupts the normal page rotation. An independent
+# timer/automation redraws the previously active configured page after the burst,
+# then the integration continues its normal page rotation.
 # =============================================================================
 
 # ============================================================
@@ -87,6 +87,20 @@ input_number:
     unit_of_measurement: s
 
 # ============================================================
+# RESTORE TIMER
+# ============================================================
+#
+# Every feedback request restarts this timer. A separate automation restores
+# the currently configured normal Pixoo page when the timer finishes. Keeping
+# restoration outside the restartable feedback script prevents rapid rotary
+# events from cancelling the restore step.
+
+timer:
+  pixoo_feedback_restore:
+    name: Pixoo feedback - Restore normal page
+    restore: false
+
+# ============================================================
 # GENERIC FEEDBACK API
 # ============================================================
 #
@@ -161,43 +175,38 @@ script:
       language: "{{ states('input_select.pixoo_language') }}"
       is_hr: "{{ language == 'hrvatski' }}"
 
+      # Natural, short labels sized for the 64px canvas.
       target_label: >-
         {% if is_hr | bool %}
-          {% if target_value == 'dining' %}BLAGOVAONICA
-          {% elif target_value == 'both' %}OBA
-          {% else %}DNEVNI{% endif %}
+          {% if target_value == 'dining' %}Blagovaonica
+          {% elif target_value == 'both' %}Obje
+          {% else %}Dnevna{% endif %}
         {% else %}
-          {% if target_value == 'dining' %}DINING
-          {% elif target_value == 'both' %}BOTH
-          {% else %}LIVING{% endif %}
+          {% if target_value == 'dining' %}Dining
+          {% elif target_value == 'both' %}Both
+          {% else %}Living{% endif %}
         {% endif %}
-      target_short: >-
+      target_context: >-
         {% if is_hr | bool %}
-          {% if target_value == 'dining' %}BLAG.
-          {% elif target_value == 'both' %}OBA
-          {% else %}DNEVNI{% endif %}
+          {% if target_value == 'both' %}Obje sobe{% else %}{{ target_label }}{% endif %}
         {% else %}
-          {% if target_value == 'dining' %}DINING
-          {% elif target_value == 'both' %}BOTH
-          {% else %}LIVING{% endif %}
+          {% if target_value == 'both' %}Both rooms{% else %}{{ target_label }}{% endif %}
         {% endif %}
-      control_label: "{{ 'UPRAVLJANJE' if is_hr | bool else 'CONTROL' }}"
-      selected_label: "{{ 'ODABRANO' if is_hr | bool else 'SELECTED' }}"
+      selected_room_label: "{{ 'Odabrana soba' if is_hr | bool else 'Selected room' }}"
       state_label: >-
         {% if is_hr | bool %}
-          {{ 'UKLJUČENO' if state | default('off') == 'on' else 'ISKLJUČENO' }}
+          {{ 'Uključeno' if state | default('off') == 'on' else 'Isključeno' }}
         {% else %}
-          {{ 'ON' if state | default('off') == 'on' else 'OFF' }}
+          {{ 'On' if state | default('off') == 'on' else 'Off' }}
         {% endif %}
       mode_label: >-
         {% if is_hr | bool %}
-          {{ 'RUČNO' if state | default('off') == 'on' else 'AUTO SPREMNO' }}
+          {{ 'Ručno' if state | default('off') == 'on' else 'Automatski' }}
         {% else %}
-          {{ 'MANUAL' if state | default('off') == 'on' else 'AUTO READY' }}
+          {{ 'Manual' if state | default('off') == 'on' else 'Automatic' }}
         {% endif %}
-      brightness_label: "{{ 'SVJETLINA' if is_hr | bool else 'BRIGHTNESS' }}"
-      synchronized_label: "{{ 'SINKRONIZIRANO' if is_hr | bool else 'SYNCHRONIZED' }}"
-      scene_label: "{{ 'SCENA' if is_hr | bool else 'SCENE' }}"
+      brightness_label: "{{ 'Svjetlina' if is_hr | bool else 'Brightness' }}"
+      scene_label: "{{ 'Scena' if is_hr | bool else 'Scene' }}"
 
       dining_pct: >-
         {% set v = dining_brightness | default(0) | int(0) %}
@@ -212,25 +221,25 @@ script:
         {% set raw = dining_scene | default('') %}
         {% set key = raw | lower %}
         {% if is_hr | bool %}
-          {% if key == 'bright' %}JARKO
-          {% elif key == 'relax' %}OPUŠTENO
-          {% elif key == 'dimmed' %}PRIGUŠENO
-          {% elif key == 'savanna sunset' %}SAVANA ZALAZAK
-          {% else %}{{ raw | upper }}{% endif %}
+          {% if key == 'bright' %}Jarko
+          {% elif key == 'relax' %}Opušteno
+          {% elif key == 'dimmed' %}Prigušeno
+          {% elif key == 'savanna sunset' %}Zalazak savane
+          {% else %}{{ raw }}{% endif %}
         {% else %}
-          {{ raw | upper }}
+          {{ raw }}
         {% endif %}
       living_scene_label: >-
         {% set raw = living_scene | default('') %}
         {% set key = raw | lower %}
         {% if is_hr | bool %}
-          {% if key == 'bright' %}JARKO
-          {% elif key == 'relax' %}OPUŠTENO
-          {% elif key == 'dimmed' %}PRIGUŠENO
-          {% elif key == 'savanna sunset' %}SAVANA ZALAZAK
-          {% else %}{{ raw | upper }}{% endif %}
+          {% if key == 'bright' %}Jarko
+          {% elif key == 'relax' %}Opušteno
+          {% elif key == 'dimmed' %}Prigušeno
+          {% elif key == 'savanna sunset' %}Zalazak savane
+          {% else %}{{ raw }}{% endif %}
         {% else %}
-          {{ raw | upper }}
+          {{ raw }}
         {% endif %}
       same_scene: "{{ (dining_scene | default('') | lower) == (living_scene | default('') | lower) }}"
       scene_line_1: >-
@@ -241,13 +250,13 @@ script:
         {% elif same_scene | bool %}
           {{ dining_scene_label }}
         {% elif is_hr | bool %}
-          B: {{ dining_scene_label }}
+          Blag.: {{ dining_scene_label }}
         {% else %}
-          D: {{ dining_scene_label }}
+          Dining: {{ dining_scene_label }}
         {% endif %}
       scene_line_2: >-
         {% if target_value == 'both' and not (same_scene | bool) %}
-          {% if is_hr | bool %}D: {{ living_scene_label }}{% else %}L: {{ living_scene_label }}{% endif %}
+          {% if is_hr | bool %}Dnevna: {{ living_scene_label }}{% else %}Living: {{ living_scene_label }}{% endif %}
         {% else %}
         {% endif %}
 
@@ -269,61 +278,78 @@ script:
       single_highlight_width: "{{ [1, (single_bar_width | int(1)) - 2] | max }}"
       both_highlight_width: "{{ [1, (both_bar_width | int(1)) - 2] | max }}"
 
+      # Embedded modern pixel-art icons; no extra files are required on HA.
+      icon_living: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABOUlEQVR42mNgGAUEACM2QYmInv+kGPI8djMDg3EEA8PZFQyM3gdRzGTBZvCnY8tIc2YsLwPD2RVYpZjQBUg1/Ot0XhT+/632/7FaIBHR859klxMBWCg1gDvzMwMDAwNDk94jhrpLcgx8VlEMLDzX///58oqRoAVOs84SZcm+NGPSfeA06yxDiAaR3ph1loFhiijxFvBZRTEwMDAwrLlBgzggNljQwYGc1wxODAwMZxb04k+mdE1F6K7BBUwSinHK0dwHNLcAXjCx8Ij9F/EpgxcVfz69YAiLSWJgYGBgWLVkHk4DYGrWbdrGwGcVxfBmSxdEP3pGgwr857OKYvh0bBkDC58EIqKQ2LgALGkjG45RXLPwiP1nYGBgEPEpgwj8eEQ4DDjkGBgYGOAux2sBukWkAmSDR8HgAQCFdF907Lr+EgAAAABJRU5ErkJggg=="
+      icon_dining: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABG0lEQVR42mNgGFEgJqfmP6l6WLAJ9viIYDXoAh65ki1vGAlaANPcdoEfq2u8FHDL9fgw/MdmERO6QlwGEAIwfSw8Yig+ZER2PTbD386UwWmocPoTDLEqg48ovmAi5DJshuATR/cFC9FhYByBYJ9dQVkqwu7aHrLiBsOCJY8vQdK8rB5JBsH0XfOVZ8AZyR06UXCJ17YXUYMFHzi7gkH0sD6c+2HKCoY/X14xEg4iEsIaF2CidfHCQih5Vhl8xJoB0cWZYvSJ84FNRR7ZrsWmF25BxQEmhooryxgYGBgY/i3ZSrLhMD0fpqzAbgEs1skFsCBDN4sRPYv7PDnGYBNjQbIFFQeYGHyeHGPYImOF2wJsZQkpgNJQGAW0AQB4KmeGjToWAAAAAABJRU5ErkJggg=="
+      icon_both: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABLklEQVR42mNgGAXUAjEfF/3f9//e/33/7/2P+bjoP7H6mIhRJFfh95+BgYFh3qcjDPM+HUERIwQYsQlKRPSgaGZTOIRV86OOTYwkWyAR0fP/w74ZeDUJOGUwvFhRwkiyD4gxvMXsA175ki1vUMxkISWiW8w+MEw49QOvmh4fkf/IljBR03AGBgaGCad+MPT4iPwn6IMZp25jWsLAwFBjxktS8sbqA5dFt3FqMFj0mSQLWLClkDMLehkYEoqxatj814GBYb4xTgNlE8+SntEoASykapBc7AtJjl864JFeYMaBMwHgtGBPnCr2VOTUQH4kw3InvszGsq+BgWVfA/lB9GJFCSN6WcTAwMDA8KWDrDhgJEVxj4/If0KZrcCMA6W4YCTVRci5lJiyaBQMPAAAP09uB8MXb+kAAAAASUVORK5CYII="
+      icon_bulb_on: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAA/0lEQVR42mNgGEzg/1b7//+32v8nRQ8TrR3FiM2VDAwMDIzeB1HkNJS4UFx+4943RmL0sRByAczg65NNUcQ1c0//x2YRQR/gNdw4AkKfXQGzhIGQJUyEDDdSZkM1HIkNk0MPPqIj2UiZjWFpgT6q4UiWLC3QRzgAB2BBjyRkr5MCNJS4/iPHEyyyiUum0DAnKEZsJKOH/9ICfayRHD3hIgMDAwPDubu/cEY2C0nhQKSrCUYyzCUwl8FcigyIcT1RcQAzgFQ5ghYguwibQchi+DIa3ji4ce8bIyzCY7fboskSzsVERTLMABMGBryFHVXA11///3/99X9w1QejYAQAAM6Veb1lYS4bAAAAAElFTkSuQmCC"
+      icon_bulb_off: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABCUlEQVR42mNgGAUEACOxCnkExP4j8798eMVIkQX/Y2L+My5Zwggz2MzKDkX+1LFDRFnEiMtwGJt3yy644Vo6OgwMDAwM165cIdoSJqy2LlkC1/DZxw3FcHQ2tuAjaAHM5TCwV4gDQ15LRwcj2Ii2AOYiZEsmP7tDUiIg6AMYcH73A6slsHggKxWhu8bMyg4lmGCWwiIZX9JlIjYfIPsEW5yQFAfoLoG5FJ8luJIqE6lZH9kSWBIm2QeEMg+6JfjUMhJbBikqqaCI3793B8UHyJmTpCD68uEVIzYXfvnwihHZUOTihazSlIGBgaGiqec/AwMDQ0ddCSOusgvdJyRHMr6yC1cwjYJhDgATOXS6CRg1MgAAAABJRU5ErkJggg=="
+      icon_brightness: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABmUlEQVR42mNgGEzAZ8f//z47/v8nRQ8TsQolInr+I7OR+fgAI7EG/zk2i8Fi1k0GBgYGhhNp6gwMDAwMLFZpDAwMDAwvVpQwEmUBzPtbPBgZYYb/OTaLoCtZrNIYTBKKGZD1wuXwuRzZ8Aq9dxhqOi4JMcB8xwC1gKggwmV4caY2XKx3+lUUS2A+QQ8uFkLer9B7h2IwDMDFpl9FsYRgKkJ2PUawGEcgMJojYEGFnrqYkNM3tjQOdymaoTA+su8sZt1kMEkoZkA2h4nWmZMFOWmxcgn9F/arItuwE2nqDCxWaQxvN7URn5NhqYXh7ApUCSgfLk9sJL/d1AbPoRip4+wKBMaSH9BdT1Qy7bgkxMAAdSWhfEB0UbEzSJhB2K+KgdicDEtBML2/v71jJOiDt5vaUCzB51JYkBJdVLByCcHTMSxV4StNkcMd2fVExQFMM3LyxWYwyfUBsi9gwH3dWwYWi7tw/lYpMxR5dNcTrHBicmowLPnSkgBn89QsgLOXTGlhpKjKJBcwkqoh4MMduK82CKgwMgw0AACt4r2uRIF9bwAAAABJRU5ErkJggg=="
+      icon_scene: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABB0lEQVR42mNgGAVQ8PXX///YxFmQOafqsCvCB8yaGBnxybMgGx4xxZhsl/+8jGBzsyEsZaI0aK62MDB0+q1kYNeFGIxsOEYQMTAwMJzZfZZow01cIT6edqSMoZwhHKsaJmpFcqffSoYYvab/eCMZ2VXkgHW3JjD8fzH9P6NEJiNOC1bkEA4iXInh64NWBgYGBhRLmKiZF7gVqhkYGBgY8PqAnKSKDGLdXuOPA61l2IPoWhR5FjPRughhoZZLCVpg1sTISE5Z5NUnT7wPzJoYGes8VvyfdqSMdkHUtCOCsc5jBck+6TmQRZwFMEti9Jr+r7s1gWIf4C3LsZUthMCSS3WMo9Xv4AIAocVUUgIaDSYAAAAASUVORK5CYII="
+      target_icon: >-
+        {% if target_value == 'dining' %}{{ icon_dining }}
+        {% elif target_value == 'both' %}{{ icon_both }}
+        {% else %}{{ icon_living }}{% endif %}
+      bulb_icon: "{{ icon_bulb_on if state | default('off') == 'on' else icon_bulb_off }}"
+
     sequence:
       - condition: state
         entity_id: input_boolean.pixoo_feedback_enabled
         state: "on"
 
+      # Start/restart the independent restore timer before rendering. This means
+      # even if a rapid new rotary event restarts this script while show_message
+      # is still running, the final event always leaves a restore timer active.
+      - action: timer.start
+        target:
+          entity_id: timer.pixoo_feedback_restore
+        data:
+          duration: "{{ duration_seconds | int(2) }}"
+
       - choose:
-          # Target selection
+          # ----------------------------------------------------
+          # Selected room / Odabrana soba
+          # ----------------------------------------------------
           - conditions:
               - condition: template
                 value_template: "{{ kind_value == 'target' }}"
             sequence:
               - action: divoom_pixoo.show_message
-                continue_on_error: true
                 target:
                   entity_id: "{{ pixoo_entity }}"
                 data:
-                  # Keep the integration's own next-page timer beyond the
-                  # explicit restore below. This prevents a race between its
-                  # scheduler and our restore of the previously displayed page.
                   duration: "{{ service_hold_seconds | int(8) }}"
                   page_data:
                     page_type: components
                     components:
-                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
-                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [18, 38, 58], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [9, 20, 33], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [84, 188, 255], filled: true}
-                      - {type: rectangle, position: [3, 6], size: [2, 48], color: [41, 105, 165], filled: true}
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 7, 13], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [58, 56], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 56], color: [10, 23, 36], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 2], color: [78, 186, 255], filled: true}
+                      - {type: image, position: [20, 6], image_data: "{{ target_icon }}", resample_mode: nearest}
                       - type: text
-                        position: [31, 9]
-                        content: "{{ control_label }}"
+                        position: [31, 33]
+                        content: "{{ selected_room_label }}"
                         font: Tiny5
-                        color: [122, 205, 255]
+                        color: [126, 200, 245]
                         align: center
                       - type: text
-                        position: [31, 26]
+                        position: [31, 44]
                         content: "{{ target_label }}"
-                        font: PixelifySans
-                        color: [245, 250, 255]
-                        align: center
-                      - type: text
-                        position: [31, 49]
-                        content: "{{ selected_label }}"
                         font: Tiny5
-                        color: [255, 196, 92]
+                        color: [246, 250, 255]
                         align: center
+                      - {type: rectangle, position: [12, 54], size: [40, 2], color: [28, 68, 96], filled: true}
+                      - {type: rectangle, position: [20, 54], size: [24, 2], color: [85, 214, 187], filled: true}
 
-          # On/off result
+          # ----------------------------------------------------
+          # On/off status
+          # ----------------------------------------------------
           - conditions:
               - condition: template
                 value_template: "{{ kind_value == 'toggle' }}"
             sequence:
               - action: divoom_pixoo.show_message
-                continue_on_error: true
                 target:
                   entity_id: "{{ pixoo_entity }}"
                 data:
@@ -331,41 +357,42 @@ script:
                   page_data:
                     page_type: components
                     components:
-                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
-                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [25, 45, 55], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [10, 22, 30], filled: true}
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 7, 13], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [58, 56], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 56], color: [11, 22, 29], filled: true}
                       - type: rectangle
-                        position: [3, 4]
-                        size: [55, 2]
-                        color: "{{ [83, 235, 157] if state | default('off') == 'on' else [104, 124, 145] }}"
+                        position: [2, 2]
+                        size: [58, 2]
+                        color: "{{ [83, 235, 157] if state | default('off') == 'on' else [110, 124, 139] }}"
                         filled: true
+                      - {type: image, position: [20, 5], image_data: "{{ bulb_icon }}", resample_mode: nearest}
                       - type: text
-                        position: [31, 9]
-                        content: "{{ target_label }}"
+                        position: [31, 32]
+                        content: "{{ target_context }}"
                         font: Tiny5
-                        color: [202, 229, 247]
+                        color: [184, 211, 229]
                         align: center
                       - type: text
-                        position: [31, 25]
+                        position: [31, 42]
                         content: "{{ state_label }}"
-                        font: PixelifySans
-                        color: "{{ [116, 255, 180] if state | default('off') == 'on' else [168, 181, 193] }}"
+                        font: Tiny5
+                        color: "{{ [116, 255, 180] if state | default('off') == 'on' else [180, 190, 201] }}"
                         align: center
                       - type: text
-                        position: [31, 48]
+                        position: [31, 51]
                         content: "{{ mode_label }}"
                         font: Tiny5
-                        color: [255, 198, 97]
+                        color: [255, 195, 92]
                         align: center
 
-          # Brightness - one room
+          # ----------------------------------------------------
+          # Brightness - single room
+          # ----------------------------------------------------
           - conditions:
               - condition: template
                 value_template: "{{ kind_value == 'brightness' and target_value != 'both' }}"
             sequence:
               - action: divoom_pixoo.show_message
-                continue_on_error: true
                 target:
                   entity_id: "{{ pixoo_entity }}"
                 data:
@@ -373,56 +400,51 @@ script:
                   page_data:
                     page_type: components
                     components:
-                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
-                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [40, 36, 22], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 20, 24], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [255, 205, 76], filled: true}
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [4, 7, 12], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [58, 56], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 56], color: [22, 20, 17], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 2], color: [255, 199, 70], filled: true}
+                      - {type: image, position: [4, 7], image_data: "{{ icon_brightness }}", resample_mode: nearest}
                       - type: text
-                        position: [31, 8]
-                        content: "{{ target_short }}"
-                        font: Tiny5
-                        color: [211, 225, 237]
-                        align: center
-                      - type: text
-                        position: [31, 19]
-                        content: "{{ single_pct }}"
-                        font: ELEVEN_PIX
-                        color: [255, 248, 220]
-                        align: center
-                      - type: text
-                        position: [49, 25]
-                        content: "%"
-                        font: Tiny5
-                        color: [255, 205, 76]
-                        align: center
-                      - {type: rectangle, position: [8, 41], size: [50, 9], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [6, 39], size: [50, 9], color: [104, 83, 35], filled: true}
-                      - {type: rectangle, position: [8, 41], size: [46, 5], color: [34, 31, 24], filled: true}
-                      - type: rectangle
-                        position: [8, 41]
-                        size: ["{{ single_bar_width }}", 5]
-                        color: [245, 177, 47]
-                        filled: true
-                      - type: rectangle
-                        position: [9, 41]
-                        size: ["{{ single_highlight_width }}", 1]
-                        color: [255, 237, 166]
-                        filled: true
-                      - type: text
-                        position: [31, 53]
+                        position: [45, 7]
                         content: "{{ brightness_label }}"
                         font: Tiny5
-                        color: [255, 205, 76]
+                        color: [255, 207, 95]
+                        align: center
+                      - type: text
+                        position: [45, 18]
+                        content: "{{ single_pct }}%"
+                        font: ELEVEN_PIX
+                        color: [255, 249, 226]
+                        align: center
+                      - {type: rectangle, position: [8, 39], size: [50, 10], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [6, 37], size: [50, 10], color: [105, 77, 28], filled: true}
+                      - {type: rectangle, position: [8, 39], size: [46, 6], color: [38, 33, 24], filled: true}
+                      - type: rectangle
+                        position: [8, 39]
+                        size: ["{{ single_bar_width }}", 6]
+                        color: [246, 176, 43]
+                        filled: true
+                      - type: rectangle
+                        position: [9, 39]
+                        size: ["{{ single_highlight_width }}", 1]
+                        color: [255, 239, 170]
+                        filled: true
+                      - type: text
+                        position: [31, 52]
+                        content: "{{ target_context }}"
+                        font: Tiny5
+                        color: [176, 193, 205]
                         align: center
 
-          # Brightness - both synchronized rooms
+          # ----------------------------------------------------
+          # Brightness - both rooms
+          # ----------------------------------------------------
           - conditions:
               - condition: template
                 value_template: "{{ kind_value == 'brightness' and target_value == 'both' }}"
             sequence:
               - action: divoom_pixoo.show_message
-                continue_on_error: true
                 target:
                   entity_id: "{{ pixoo_entity }}"
                 data:
@@ -430,56 +452,51 @@ script:
                   page_data:
                     page_type: components
                     components:
-                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
-                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [40, 36, 22], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 20, 24], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [255, 205, 76], filled: true}
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [4, 7, 12], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [58, 56], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 56], color: [22, 20, 17], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 2], color: [255, 199, 70], filled: true}
+                      - {type: image, position: [4, 7], image_data: "{{ icon_both }}", resample_mode: nearest}
                       - type: text
-                        position: [31, 8]
-                        content: "{{ target_label }}"
+                        position: [45, 7]
+                        content: "{{ brightness_label }}"
                         font: Tiny5
-                        color: [211, 225, 237]
+                        color: [255, 207, 95]
                         align: center
                       - type: text
-                        position: [31, 19]
-                        content: "{{ both_pct }}"
+                        position: [45, 18]
+                        content: "{{ both_pct }}%"
                         font: ELEVEN_PIX
-                        color: [255, 248, 220]
+                        color: [255, 249, 226]
                         align: center
-                      - type: text
-                        position: [49, 25]
-                        content: "%"
-                        font: Tiny5
-                        color: [255, 205, 76]
-                        align: center
-                      - {type: rectangle, position: [8, 41], size: [50, 9], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [6, 39], size: [50, 9], color: [104, 83, 35], filled: true}
-                      - {type: rectangle, position: [8, 41], size: [46, 5], color: [34, 31, 24], filled: true}
+                      - {type: rectangle, position: [8, 39], size: [50, 10], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [6, 37], size: [50, 10], color: [105, 77, 28], filled: true}
+                      - {type: rectangle, position: [8, 39], size: [46, 6], color: [38, 33, 24], filled: true}
                       - type: rectangle
-                        position: [8, 41]
-                        size: ["{{ both_bar_width }}", 5]
-                        color: [245, 177, 47]
+                        position: [8, 39]
+                        size: ["{{ both_bar_width }}", 6]
+                        color: [246, 176, 43]
                         filled: true
                       - type: rectangle
-                        position: [9, 41]
+                        position: [9, 39]
                         size: ["{{ both_highlight_width }}", 1]
-                        color: [255, 237, 166]
+                        color: [255, 239, 170]
                         filled: true
                       - type: text
-                        position: [31, 53]
-                        content: "{{ synchronized_label }}"
+                        position: [31, 52]
+                        content: "{{ target_context }}"
                         font: Tiny5
-                        color: [120, 231, 181]
+                        color: [112, 226, 180]
                         align: center
 
+          # ----------------------------------------------------
           # Scene
+          # ----------------------------------------------------
           - conditions:
               - condition: template
                 value_template: "{{ kind_value == 'scene' }}"
             sequence:
               - action: divoom_pixoo.show_message
-                continue_on_error: true
                 target:
                   entity_id: "{{ pixoo_entity }}"
                 data:
@@ -487,46 +504,35 @@ script:
                   page_data:
                     page_type: components
                     components:
-                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
-                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
-                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [38, 25, 52], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 13, 27], filled: true}
-                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [201, 128, 255], filled: true}
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [5, 5, 11], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [58, 56], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 56], color: [21, 14, 30], filled: true}
+                      - {type: rectangle, position: [2, 2], size: [58, 2], color: [201, 128, 255], filled: true}
+                      - {type: image, position: [4, 7], image_data: "{{ icon_scene }}", resample_mode: nearest}
                       - type: text
-                        position: [31, 8]
-                        content: "{{ target_short }}"
-                        font: Tiny5
-                        color: [218, 208, 232]
-                        align: center
-                      - type: text
-                        position: [31, 16]
+                        position: [45, 7]
                         content: "{{ scene_label }}"
                         font: Tiny5
-                        color: [201, 128, 255]
+                        color: [211, 159, 255]
                         align: center
                       - type: text
-                        position: [31, 30]
+                        position: [45, 17]
+                        content: "{{ target_context }}"
+                        font: Tiny5
+                        color: [190, 179, 205]
+                        align: center
+                      - type: text
+                        position: [31, 36]
                         content: "{{ scene_line_1 }}"
                         font: Tiny5
-                        color: [249, 245, 255]
+                        color: [250, 245, 255]
                         align: center
                       - type: text
-                        position: [31, 42]
+                        position: [31, 47]
                         content: "{{ scene_line_2 }}"
                         font: Tiny5
-                        color: [181, 158, 204]
+                        color: [184, 158, 207]
                         align: center
-
-      # Explicitly restore the normal page that was current before the burst.
-      # Because this script is mode: restart, every new rotary event cancels
-      # this delay and starts it again; the page therefore stays in feedback
-      # mode only while the user is actively interacting.
-      - delay:
-          seconds: "{{ duration_seconds | int(2) }}"
-      - action: divoom_pixoo.update_page
-        continue_on_error: true
-        target:
-          entity_id: "{{ pixoo_entity }}"
 
 # ============================================================
 # EVENT BRIDGE
@@ -539,6 +545,22 @@ script:
 # The sender does not need to know the Pixoo entity, service, or enable helper.
 
 automation:
+  - id: pixoo_feedback_restore_normal_page
+    alias: Pixoo feedback - Restore normal page
+    mode: restart
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.pixoo_feedback_restore
+    actions:
+      # Re-render the integration's current configured page (the page that was
+      # visible before show_message). The integration's own scheduler remains
+      # active and advances after resume_rotation_seconds.
+      - action: divoom_pixoo.update_page
+        target:
+          entity_id: *cfg_pixoo_feedback_entity
+
   - id: pixoo_feedback_event_bridge
     alias: Pixoo feedback - Handle feedback request
     mode: restart
