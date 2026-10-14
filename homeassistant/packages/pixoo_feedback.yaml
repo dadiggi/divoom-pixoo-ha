@@ -1,0 +1,458 @@
+# =============================================================================
+# Divoom Pixoo 64 - temporary feedback / interaction bursts
+# https://github.com/dadiggi/divoom-pixoo-ha
+#
+# This package is intentionally separate from pixoo_animated.yaml.
+# The animated dashboard keeps using pre-rendered GIF pages; this package uses
+# divoom_pixoo.show_message for fast, temporary 64x64 interaction screens.
+#
+# The show_message service interrupts the normal page rotation for the requested
+# duration, then the integration resumes the configured dashboard/weather pages.
+# =============================================================================
+
+# ============================================================
+# USER CONFIGURATION
+# ============================================================
+# Edit the Pixoo Current Page entity here if Home Assistant names it differently.
+
+template:
+  - sensor:
+      - name: Pixoo Feedback Configuration
+        unique_id: pixoo_feedback_configuration
+        icon: mdi:message-badge-outline
+        state: configured
+        attributes:
+          pixoo_entity: &cfg_pixoo_feedback_entity "sensor.divoom_pixoo_64_current_page"
+
+# ============================================================
+# RUNTIME HELPERS / TUNABLE PARAMETERS
+# ============================================================
+
+input_boolean:
+  pixoo_feedback_initialized:
+    name: Pixoo feedback - Defaults applied
+    icon: mdi:check-decagram
+  pixoo_feedback_enabled:
+    name: Pixoo feedback - Enabled
+    icon: mdi:message-flash
+
+input_number:
+  pixoo_feedback_target_duration_seconds:
+    name: Pixoo feedback - Target duration
+    icon: mdi:timer-outline
+    min: 1
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: s
+
+  pixoo_feedback_toggle_duration_seconds:
+    name: Pixoo feedback - On/off duration
+    icon: mdi:timer-outline
+    min: 1
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: s
+
+  pixoo_feedback_brightness_duration_seconds:
+    name: Pixoo feedback - Brightness duration
+    icon: mdi:timer-outline
+    min: 1
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: s
+
+  pixoo_feedback_scene_duration_seconds:
+    name: Pixoo feedback - Scene duration
+    icon: mdi:timer-outline
+    min: 1
+    max: 10
+    step: 1
+    mode: box
+    unit_of_measurement: s
+
+# ============================================================
+# GENERIC FEEDBACK API
+# ============================================================
+#
+# Call script.pixoo_feedback with:
+#   kind: target | toggle | brightness | scene
+#   target: living | dining | both
+#
+# Optional values:
+#   state: on | off
+#   dining_brightness / living_brightness: 0..100
+#   dining_scene / living_scene: short display names
+#
+# The script is generic on purpose; lighting is only its first consumer.
+
+script:
+  pixoo_feedback:
+    alias: Pixoo - Show temporary feedback
+    icon: mdi:message-flash-outline
+    mode: restart
+    fields:
+      kind:
+        name: Feedback kind
+        required: true
+        selector:
+          select:
+            options:
+              - target
+              - toggle
+              - brightness
+              - scene
+      target:
+        name: Target
+        required: true
+        selector:
+          select:
+            options:
+              - living
+              - dining
+              - both
+      state:
+        name: On/off state
+        required: false
+        selector:
+          select:
+            options:
+              - "on"
+              - "off"
+      dining_brightness:
+        name: Dining brightness
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 100
+      living_brightness:
+        name: Living brightness
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 100
+      dining_scene:
+        name: Dining scene
+        required: false
+        selector:
+          text: {}
+      living_scene:
+        name: Living scene
+        required: false
+        selector:
+          text: {}
+    variables:
+      pixoo_entity: *cfg_pixoo_feedback_entity
+      kind_value: "{{ kind | default('target') | lower }}"
+      target_value: "{{ target | default('living') | lower }}"
+      target_label: >-
+        {% if target_value == 'dining' %}DINING
+        {% elif target_value == 'both' %}BOTH
+        {% else %}LIVING{% endif %}
+      state_label: "{{ state | default('') | upper }}"
+      dining_pct: >-
+        {% set v = dining_brightness | default(0) | int(0) %}
+        {{ [0, [100, v] | min] | max }}
+      living_pct: >-
+        {% set v = living_brightness | default(0) | int(0) %}
+        {{ [0, [100, v] | min] | max }}
+      dining_scene_label: "{{ dining_scene | default('') | upper }}"
+      living_scene_label: "{{ living_scene | default('') | upper }}"
+      duration_seconds: >-
+        {% if kind_value == 'brightness' %}
+          {{ states('input_number.pixoo_feedback_brightness_duration_seconds') | int(2) }}
+        {% elif kind_value == 'scene' %}
+          {{ states('input_number.pixoo_feedback_scene_duration_seconds') | int(3) }}
+        {% elif kind_value == 'toggle' %}
+          {{ states('input_number.pixoo_feedback_toggle_duration_seconds') | int(2) }}
+        {% else %}
+          {{ states('input_number.pixoo_feedback_target_duration_seconds') | int(3) }}
+        {% endif %}
+      single_pct: "{{ living_pct if target_value == 'living' else dining_pct }}"
+      single_scene: "{{ living_scene_label if target_value == 'living' else dining_scene_label }}"
+      scene_line_1: >-
+        {% if target_value == 'both' and dining_scene_label != living_scene_label %}
+          D:{{ dining_scene_label }}
+        {% elif target_value == 'both' %}
+          {{ dining_scene_label }}
+        {% else %}
+          {{ single_scene }}
+        {% endif %}
+      scene_line_2: >-
+        {% if target_value == 'both' and dining_scene_label != living_scene_label %}
+          L:{{ living_scene_label }}
+        {% else %}
+        {% endif %}
+      dining_bar_width: "{{ [1, ((dining_pct | int(0)) * 36 / 100) | round(0) | int] | max }}"
+      living_bar_width: "{{ [1, ((living_pct | int(0)) * 36 / 100) | round(0) | int] | max }}"
+      single_bar_width: "{{ [1, ((single_pct | int(0)) * 50 / 100) | round(0) | int] | max }}"
+    sequence:
+      - condition: state
+        entity_id: input_boolean.pixoo_feedback_enabled
+        state: "on"
+
+      - choose:
+          # ----------------------------------------------------
+          # Target selection burst
+          # ----------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ kind_value == 'target' }}"
+            sequence:
+              - action: divoom_pixoo.show_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ pixoo_entity }}"
+                data:
+                  duration: "{{ duration_seconds | int(3) }}"
+                  page_data:
+                    page_type: components
+                    components:
+                      - type: text
+                        position: [32, 7]
+                        content: "CONTROL"
+                        font: GICKO
+                        color: [120, 180, 255]
+                        align: center
+                      - type: text
+                        position: [32, 27]
+                        content: "{{ target_label }}"
+                        font: ELEVEN_PIX
+                        color: [255, 255, 255]
+                        align: center
+                      - type: text
+                        position: [32, 54]
+                        content: "SELECTED"
+                        font: PICO_8
+                        color: [120, 180, 255]
+                        align: center
+
+          # ----------------------------------------------------
+          # On/off result burst
+          # ----------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ kind_value == 'toggle' }}"
+            sequence:
+              - action: divoom_pixoo.show_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ pixoo_entity }}"
+                data:
+                  duration: "{{ duration_seconds | int(2) }}"
+                  page_data:
+                    page_type: components
+                    components:
+                      - type: text
+                        position: [32, 5]
+                        content: "{{ target_label }}"
+                        font: GICKO
+                        color: [120, 180, 255]
+                        align: center
+                      - type: text
+                        position: [32, 25]
+                        content: "{{ state_label }}"
+                        font: ELEVEN_PIX
+                        color: "{{ [120, 255, 150] if state_label == 'ON' else [180, 180, 180] }}"
+                        align: center
+                      - type: text
+                        position: [32, 54]
+                        content: "{{ 'MANUAL' if state_label == 'ON' else 'AUTO READY' }}"
+                        font: PICO_8
+                        color: [255, 220, 120]
+                        align: center
+
+          # ----------------------------------------------------
+          # Live brightness burst - one room
+          # ----------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ kind_value == 'brightness' and target_value != 'both' }}"
+            sequence:
+              - action: divoom_pixoo.show_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ pixoo_entity }}"
+                data:
+                  duration: "{{ duration_seconds | int(2) }}"
+                  page_data:
+                    page_type: components
+                    components:
+                      - type: text
+                        position: [32, 3]
+                        content: "{{ target_label }}"
+                        font: GICKO
+                        color: [120, 180, 255]
+                        align: center
+                      - type: text
+                        position: [32, 18]
+                        content: "{{ single_pct }}"
+                        font: ELEVEN_PIX
+                        color: [255, 255, 255]
+                        align: center
+                      - type: rectangle
+                        position: [5, 39]
+                        size: [54, 10]
+                        filled: false
+                        color: [110, 110, 110]
+                      - type: rectangle
+                        position: [7, 41]
+                        size: ["{{ single_bar_width }}", 6]
+                        filled: true
+                        color: [255, 220, 90]
+                      - type: text
+                        position: [32, 55]
+                        content: "% BRIGHTNESS"
+                        font: PICO_8
+                        color: [255, 220, 90]
+                        align: center
+
+          # ----------------------------------------------------
+          # Live brightness burst - both rooms
+          # ----------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ kind_value == 'brightness' and target_value == 'both' }}"
+            sequence:
+              - action: divoom_pixoo.show_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ pixoo_entity }}"
+                data:
+                  duration: "{{ duration_seconds | int(2) }}"
+                  page_data:
+                    page_type: components
+                    components:
+                      - type: text
+                        position: [32, 2]
+                        content: "BOTH"
+                        font: GICKO
+                        color: [120, 180, 255]
+                        align: center
+                      - type: text
+                        position: [2, 17]
+                        content: "D"
+                        font: GICKO
+                        color: [255, 255, 255]
+                      - type: rectangle
+                        position: [12, 16]
+                        size: [40, 8]
+                        filled: false
+                        color: [110, 110, 110]
+                      - type: rectangle
+                        position: [14, 18]
+                        size: ["{{ dining_bar_width }}", 4]
+                        filled: true
+                        color: [255, 220, 90]
+                      - type: text
+                        position: [63, 17]
+                        content: "{{ dining_pct }}%"
+                        font: PICO_8
+                        color: [255, 255, 255]
+                        align: right
+                      - type: text
+                        position: [2, 34]
+                        content: "L"
+                        font: GICKO
+                        color: [255, 255, 255]
+                      - type: rectangle
+                        position: [12, 33]
+                        size: [40, 8]
+                        filled: false
+                        color: [110, 110, 110]
+                      - type: rectangle
+                        position: [14, 35]
+                        size: ["{{ living_bar_width }}", 4]
+                        filled: true
+                        color: [255, 220, 90]
+                      - type: text
+                        position: [63, 34]
+                        content: "{{ living_pct }}%"
+                        font: PICO_8
+                        color: [255, 255, 255]
+                        align: right
+                      - type: text
+                        position: [32, 54]
+                        content: "BRIGHTNESS"
+                        font: PICO_8
+                        color: [255, 220, 90]
+                        align: center
+
+          # ----------------------------------------------------
+          # Scene burst
+          # ----------------------------------------------------
+          - conditions:
+              - condition: template
+                value_template: "{{ kind_value == 'scene' }}"
+            sequence:
+              - action: divoom_pixoo.show_message
+                continue_on_error: true
+                target:
+                  entity_id: "{{ pixoo_entity }}"
+                data:
+                  duration: "{{ duration_seconds | int(3) }}"
+                  page_data:
+                    page_type: components
+                    components:
+                      - type: text
+                        position: [32, 3]
+                        content: "{{ target_label }}"
+                        font: GICKO
+                        color: [120, 180, 255]
+                        align: center
+                      - type: text
+                        position: [32, 16]
+                        content: "SCENE"
+                        font: PICO_8
+                        color: [255, 220, 90]
+                        align: center
+                      - type: text
+                        position: [32, 31]
+                        content: "{{ scene_line_1 }}"
+                        font: PICO_8
+                        color: [255, 255, 255]
+                        align: center
+                      - type: text
+                        position: [32, 42]
+                        content: "{{ scene_line_2 }}"
+                        font: PICO_8
+                        color: [255, 255, 255]
+                        align: center
+
+# ============================================================
+# FIRST-RUN DEFAULTS
+# ============================================================
+
+automation:
+  - id: pixoo_feedback_first_run_defaults
+    alias: Pixoo feedback - First run defaults
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.pixoo_feedback_initialized
+        state: "off"
+    actions:
+      - repeat:
+          for_each:
+            - {entity: input_number.pixoo_feedback_target_duration_seconds, value: 3}
+            - {entity: input_number.pixoo_feedback_toggle_duration_seconds, value: 2}
+            - {entity: input_number.pixoo_feedback_brightness_duration_seconds, value: 2}
+            - {entity: input_number.pixoo_feedback_scene_duration_seconds, value: 3}
+          sequence:
+            - action: input_number.set_value
+              target:
+                entity_id: "{{ repeat.item.entity }}"
+              data:
+                value: "{{ repeat.item.value }}"
+      - action: input_boolean.turn_on
+        target:
+          entity_id:
+            - input_boolean.pixoo_feedback_enabled
+            - input_boolean.pixoo_feedback_initialized
