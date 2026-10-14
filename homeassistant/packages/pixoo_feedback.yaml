@@ -420,10 +420,41 @@ script:
                         align: center
 
 # ============================================================
+# EVENT BRIDGE
+# ============================================================
+#
+# Other packages can request a temporary Pixoo page by firing:
+#   event: pixoo_feedback_request
+# with semantic fields such as kind, target, brightness, scene, etc.
+#
+# The sender does not need to know the Pixoo entity, service, or enable helper.
+
+automation:
+  - id: pixoo_feedback_event_bridge
+    alias: Pixoo feedback - Handle feedback request
+    mode: restart
+    triggers:
+      - trigger: event
+        event_type: pixoo_feedback_request
+    conditions:
+      - condition: state
+        entity_id: input_boolean.pixoo_feedback_enabled
+        state: "on"
+    actions:
+      - action: script.pixoo_feedback
+        data:
+          kind: "{{ trigger.event.data.kind | default('target', true) }}"
+          target: "{{ trigger.event.data.target | default('living', true) }}"
+          state: "{{ trigger.event.data.state | default('off', true) }}"
+          dining_brightness: "{{ trigger.event.data.dining_brightness | default(0, true) }}"
+          living_brightness: "{{ trigger.event.data.living_brightness | default(0, true) }}"
+          dining_scene: "{{ trigger.event.data.dining_scene | default('', true) }}"
+          living_scene: "{{ trigger.event.data.living_scene | default('', true) }}"
+
+# ============================================================
 # FIRST-RUN DEFAULTS
 # ============================================================
 
-automation:
   - id: pixoo_feedback_first_run_defaults
     alias: Pixoo feedback - First run defaults
     mode: single
