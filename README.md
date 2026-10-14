@@ -112,11 +112,14 @@ It uses the existing `divoom_pixoo.show_message` service, so a burst immediately
 The package exposes:
 
 - `script.pixoo_feedback` with `target`, `toggle`, `brightness`, and `scene` feedback modes.
+- A `pixoo_feedback_request` Home Assistant event bridge so other packages can request bursts without depending on the Pixoo service/entity.
 - `input_boolean.pixoo_feedback_enabled` to disable all temporary feedback without changing callers.
 - Separate duration helpers for target selection, on/off, brightness, and scene screens.
 - A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
 
-The brightness layout supports one-room and two-room feedback, including separate Dining/Living percentage bars. Repeated calls replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
+The brightness layout supports one-room and two-room feedback, including separate Dining/Living percentage bars. Repeated requests replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
+
+External packages should normally fire `pixoo_feedback_request` rather than call `script.pixoo_feedback` directly. The event bridge owns the enable check and forwards the event data into the renderer.
 
 The package is intentionally independent of `pixoo_render.py`: a feedback failure cannot block or alter the normal GIF generation pipeline.
 
