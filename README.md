@@ -117,7 +117,11 @@ The package exposes:
 - Separate duration helpers for target selection, on/off, brightness, and scene screens.
 - A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
 
-The brightness layout supports one-room and two-room feedback, including separate Dining/Living percentage bars. Repeated requests replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
+The feedback UI is bilingual Croatian/English. Target, ON/OFF, brightness, scene, manual/automatic status, and the built-in Bright/Relax/Dimmed/Savanna Sunset scene names all have Croatian/English presentation where space allows.
+
+The layouts use layered dark panels, offset shadows, edge highlights, and raised progress rails to simulate a modern 3D control card within the Pixoo's 64×64 component renderer. No external image assets are required.
+
+Brightness has dedicated one-room and synchronized Both-room layouts. Repeated requests replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
 
 External packages should normally fire `pixoo_feedback_request` rather than call `script.pixoo_feedback` directly. The event bridge owns the enable check and forwards the event data into the renderer.
 

@@ -30,15 +30,15 @@ template:
 
 input_boolean:
   pixoo_feedback_initialized:
-    name: Pixoo feedback - Defaults applied
+    name: Pixoo feedback - Početne vrijednosti / Defaults applied
     icon: mdi:check-decagram
   pixoo_feedback_enabled:
-    name: Pixoo feedback - Enabled
+    name: Pixoo feedback - Omogućeno / Enabled
     icon: mdi:message-flash
 
 input_number:
   pixoo_feedback_target_duration_seconds:
-    name: Pixoo feedback - Target duration
+    name: Pixoo feedback - Trajanje odabira / Target duration
     icon: mdi:timer-outline
     min: 1
     max: 10
@@ -47,7 +47,7 @@ input_number:
     unit_of_measurement: s
 
   pixoo_feedback_toggle_duration_seconds:
-    name: Pixoo feedback - On/off duration
+    name: Pixoo feedback - Trajanje ON/OFF / On/off duration
     icon: mdi:timer-outline
     min: 1
     max: 10
@@ -56,7 +56,7 @@ input_number:
     unit_of_measurement: s
 
   pixoo_feedback_brightness_duration_seconds:
-    name: Pixoo feedback - Brightness duration
+    name: Pixoo feedback - Trajanje svjetline / Brightness duration
     icon: mdi:timer-outline
     min: 1
     max: 10
@@ -65,7 +65,7 @@ input_number:
     unit_of_measurement: s
 
   pixoo_feedback_scene_duration_seconds:
-    name: Pixoo feedback - Scene duration
+    name: Pixoo feedback - Trajanje scene / Scene duration
     icon: mdi:timer-outline
     min: 1
     max: 10
@@ -90,12 +90,12 @@ input_number:
 
 script:
   pixoo_feedback:
-    alias: Pixoo - Show temporary feedback
+    alias: Pixoo - Privremena obavijest / Temporary feedback
     icon: mdi:message-flash-outline
     mode: restart
     fields:
       kind:
-        name: Feedback kind
+        name: Vrsta / Feedback kind
         required: true
         selector:
           select:
@@ -105,7 +105,7 @@ script:
               - brightness
               - scene
       target:
-        name: Target
+        name: Prostor / Target
         required: true
         selector:
           select:
@@ -114,7 +114,7 @@ script:
               - dining
               - both
       state:
-        name: On/off state
+        name: Stanje / On/off state
         required: false
         selector:
           select:
@@ -122,42 +122,98 @@ script:
               - "on"
               - "off"
       dining_brightness:
-        name: Dining brightness
+        name: Blagovaonica - svjetlina / Dining brightness
         required: false
         selector:
           number:
             min: 0
             max: 100
       living_brightness:
-        name: Living brightness
+        name: Dnevni - svjetlina / Living brightness
         required: false
         selector:
           number:
             min: 0
             max: 100
       dining_scene:
-        name: Dining scene
+        name: Blagovaonica - scena / Dining scene
         required: false
       living_scene:
-        name: Living scene
+        name: Dnevni - scena / Living scene
         required: false
     variables:
       pixoo_entity: *cfg_pixoo_feedback_entity
       kind_value: "{{ kind | default('target') | lower }}"
       target_value: "{{ target | default('living') | lower }}"
-      target_label: >-
+
+      # Bilingual labels. Tiny5/PixelifySans support Croatian diacritics.
+      target_hr: >-
+        {% if target_value == 'dining' %}BLAGOVAONICA
+        {% elif target_value == 'both' %}OBA
+        {% else %}DNEVNI{% endif %}
+      target_en: >-
         {% if target_value == 'dining' %}DINING
         {% elif target_value == 'both' %}BOTH
         {% else %}LIVING{% endif %}
-      state_label: "{{ state | default('') | upper }}"
+      target_short_hr: >-
+        {% if target_value == 'dining' %}BLAG.
+        {% elif target_value == 'both' %}OBA
+        {% else %}DNEVNI{% endif %}
+      state_hr: "{{ 'UKLJUČENO' if state | default('off') == 'on' else 'ISKLJUČENO' }}"
+      state_en: "{{ 'ON' if state | default('off') == 'on' else 'OFF' }}"
+      mode_hr: "{{ 'RUČNO' if state | default('off') == 'on' else 'AUTO SPREMNO' }}"
+      mode_en: "{{ 'MANUAL' if state | default('off') == 'on' else 'AUTO READY' }}"
+
       dining_pct: >-
         {% set v = dining_brightness | default(0) | int(0) %}
         {{ [0, [100, v] | min] | max }}
       living_pct: >-
         {% set v = living_brightness | default(0) | int(0) %}
         {{ [0, [100, v] | min] | max }}
-      dining_scene_label: "{{ dining_scene | default('') | upper }}"
-      living_scene_label: "{{ living_scene | default('') | upper }}"
+      single_pct: "{{ living_pct if target_value == 'living' else dining_pct }}"
+      both_pct: "{{ (((dining_pct | int(0)) + (living_pct | int(0))) / 2) | round(0) | int }}"
+
+      dining_scene_en: "{{ dining_scene | default('') | upper }}"
+      living_scene_en: "{{ living_scene | default('') | upper }}"
+      dining_scene_hr: >-
+        {% set s = dining_scene | default('') | lower %}
+        {% if s == 'bright' %}JARKO
+        {% elif s == 'relax' %}OPUŠTENO
+        {% elif s == 'dimmed' %}PRIGUŠENO
+        {% elif s == 'savanna sunset' %}SAVANA ZALAZAK
+        {% else %}{{ dining_scene | default('') | upper }}{% endif %}
+      living_scene_hr: >-
+        {% set s = living_scene | default('') | lower %}
+        {% if s == 'bright' %}JARKO
+        {% elif s == 'relax' %}OPUŠTENO
+        {% elif s == 'dimmed' %}PRIGUŠENO
+        {% elif s == 'savanna sunset' %}SAVANA ZALAZAK
+        {% else %}{{ living_scene | default('') | upper }}{% endif %}
+      single_scene_hr: "{{ living_scene_hr if target_value == 'living' else dining_scene_hr }}"
+      single_scene_en: "{{ living_scene_en if target_value == 'living' else dining_scene_en }}"
+      same_scene: "{{ dining_scene_en == living_scene_en }}"
+      scene_line_1: >-
+        {% if target_value != 'both' %}
+          {{ single_scene_hr }}
+        {% elif same_scene | bool %}
+          {{ dining_scene_hr }}
+        {% else %}
+          B: {{ dining_scene_hr }}
+        {% endif %}
+      scene_line_2: >-
+        {% if target_value != 'both' %}
+          {{ single_scene_en }}
+        {% elif same_scene | bool %}
+          {{ dining_scene_en }}
+        {% else %}
+          D: {{ living_scene_hr }}
+        {% endif %}
+      scene_line_3: >-
+        {% if target_value == 'both' and not (same_scene | bool) %}
+          DINING / LIVING
+        {% else %}
+        {% endif %}
+
       duration_seconds: >-
         {% if kind_value == 'brightness' %}
           {{ states('input_number.pixoo_feedback_brightness_duration_seconds') | int(2) }}
@@ -168,24 +224,13 @@ script:
         {% else %}
           {{ states('input_number.pixoo_feedback_target_duration_seconds') | int(3) }}
         {% endif %}
-      single_pct: "{{ living_pct if target_value == 'living' else dining_pct }}"
-      single_scene: "{{ living_scene_label if target_value == 'living' else dining_scene_label }}"
-      scene_line_1: >-
-        {% if target_value == 'both' and dining_scene_label != living_scene_label %}
-          D:{{ dining_scene_label }}
-        {% elif target_value == 'both' %}
-          {{ dining_scene_label }}
-        {% else %}
-          {{ single_scene }}
-        {% endif %}
-      scene_line_2: >-
-        {% if target_value == 'both' and dining_scene_label != living_scene_label %}
-          L:{{ living_scene_label }}
-        {% else %}
-        {% endif %}
-      dining_bar_width: "{{ [1, ((dining_pct | int(0)) * 36 / 100) | round(0) | int] | max }}"
-      living_bar_width: "{{ [1, ((living_pct | int(0)) * 36 / 100) | round(0) | int] | max }}"
-      single_bar_width: "{{ [1, ((single_pct | int(0)) * 50 / 100) | round(0) | int] | max }}"
+
+      # Progress widths for a 46px inner track.
+      single_bar_width: "{{ [1, ((single_pct | int(0)) * 46 / 100) | round(0) | int] | max }}"
+      both_bar_width: "{{ [1, ((both_pct | int(0)) * 46 / 100) | round(0) | int] | max }}"
+      single_highlight_width: "{{ [1, (single_bar_width | int(1)) - 2] | max }}"
+      both_highlight_width: "{{ [1, (both_bar_width | int(1)) - 2] | max }}"
+
     sequence:
       - condition: state
         entity_id: input_boolean.pixoo_feedback_enabled
@@ -193,7 +238,7 @@ script:
 
       - choose:
           # ----------------------------------------------------
-          # Target selection burst
+          # Odabir prostora / Target selection
           # ----------------------------------------------------
           - conditions:
               - condition: template
@@ -208,27 +253,52 @@ script:
                   page_data:
                     page_type: components
                     components:
+                      # Deep background + offset shadow creates a small 3D card.
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
+                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [18, 38, 58], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [9, 20, 33], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [84, 188, 255], filled: true}
+                      - {type: rectangle, position: [3, 6], size: [2, 48], color: [41, 105, 165], filled: true}
                       - type: text
-                        position: [32, 7]
+                        position: [31, 8]
+                        content: "UPRAVLJANJE"
+                        font: Tiny5
+                        color: [122, 205, 255]
+                        align: center
+                      - type: text
+                        position: [31, 14]
                         content: "CONTROL"
-                        font: GICKO
-                        color: [120, 180, 255]
+                        font: Tiny5
+                        color: [79, 126, 163]
                         align: center
                       - type: text
-                        position: [32, 27]
-                        content: "{{ target_label }}"
-                        font: ELEVEN_PIX
-                        color: [255, 255, 255]
+                        position: [31, 25]
+                        content: "{{ target_hr }}"
+                        font: PixelifySans
+                        color: [245, 250, 255]
                         align: center
                       - type: text
-                        position: [32, 54]
+                        position: [31, 36]
+                        content: "{{ target_en }}"
+                        font: Tiny5
+                        color: [147, 180, 207]
+                        align: center
+                      - type: text
+                        position: [31, 47]
+                        content: "ODABRANO"
+                        font: Tiny5
+                        color: [255, 196, 92]
+                        align: center
+                      - type: text
+                        position: [31, 53]
                         content: "SELECTED"
-                        font: PICO_8
-                        color: [120, 180, 255]
+                        font: Tiny5
+                        color: [153, 108, 45]
                         align: center
 
           # ----------------------------------------------------
-          # On/off result burst
+          # Uključi/isključi / On-off result
           # ----------------------------------------------------
           - conditions:
               - condition: template
@@ -243,27 +313,54 @@ script:
                   page_data:
                     page_type: components
                     components:
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
+                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [25, 45, 55], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [10, 22, 30], filled: true}
+                      - type: rectangle
+                        position: [3, 4]
+                        size: [55, 2]
+                        color: "{{ [83, 235, 157] if state | default('off') == 'on' else [104, 124, 145] }}"
+                        filled: true
                       - type: text
-                        position: [32, 5]
-                        content: "{{ target_label }}"
-                        font: GICKO
-                        color: [120, 180, 255]
+                        position: [31, 8]
+                        content: "{{ target_hr }}"
+                        font: Tiny5
+                        color: [202, 229, 247]
                         align: center
                       - type: text
-                        position: [32, 25]
-                        content: "{{ state_label }}"
-                        font: ELEVEN_PIX
-                        color: "{{ [120, 255, 150] if state_label == 'ON' else [180, 180, 180] }}"
+                        position: [31, 14]
+                        content: "{{ target_en }}"
+                        font: Tiny5
+                        color: [102, 151, 185]
                         align: center
                       - type: text
-                        position: [32, 54]
-                        content: "{{ 'MANUAL' if state_label == 'ON' else 'AUTO READY' }}"
-                        font: PICO_8
-                        color: [255, 220, 120]
+                        position: [31, 25]
+                        content: "{{ state_hr }}"
+                        font: PixelifySans
+                        color: "{{ [116, 255, 180] if state | default('off') == 'on' else [168, 181, 193] }}"
+                        align: center
+                      - type: text
+                        position: [31, 36]
+                        content: "{{ state_en }}"
+                        font: Tiny5
+                        color: [190, 205, 218]
+                        align: center
+                      - type: text
+                        position: [31, 47]
+                        content: "{{ mode_hr }}"
+                        font: Tiny5
+                        color: [255, 198, 97]
+                        align: center
+                      - type: text
+                        position: [31, 53]
+                        content: "{{ mode_en }}"
+                        font: Tiny5
+                        color: [173, 126, 54]
                         align: center
 
           # ----------------------------------------------------
-          # Live brightness burst - one room
+          # Svjetlina / Brightness - one room
           # ----------------------------------------------------
           - conditions:
               - condition: template
@@ -278,37 +375,58 @@ script:
                   page_data:
                     page_type: components
                     components:
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
+                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [40, 36, 22], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 20, 24], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [255, 205, 76], filled: true}
                       - type: text
-                        position: [32, 3]
-                        content: "{{ target_label }}"
-                        font: GICKO
-                        color: [120, 180, 255]
+                        position: [31, 7]
+                        content: "{{ target_short_hr }} / {{ target_en }}"
+                        font: Tiny5
+                        color: [211, 225, 237]
                         align: center
                       - type: text
-                        position: [32, 18]
+                        position: [31, 18]
                         content: "{{ single_pct }}"
                         font: ELEVEN_PIX
-                        color: [255, 255, 255]
+                        color: [255, 248, 220]
                         align: center
-                      - type: rectangle
-                        position: [5, 39]
-                        size: [54, 10]
-                        filled: false
-                        color: [110, 110, 110]
-                      - type: rectangle
-                        position: [7, 41]
-                        size: ["{{ single_bar_width }}", 6]
-                        filled: true
-                        color: [255, 220, 90]
                       - type: text
-                        position: [32, 55]
-                        content: "% BRIGHTNESS"
-                        font: PICO_8
-                        color: [255, 220, 90]
+                        position: [49, 24]
+                        content: "%"
+                        font: Tiny5
+                        color: [255, 205, 76]
+                        align: center
+                      # 3D brightness rail: shadow, frame, well, fill, highlight.
+                      - {type: rectangle, position: [8, 41], size: [50, 9], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [6, 39], size: [50, 9], color: [104, 83, 35], filled: true}
+                      - {type: rectangle, position: [8, 41], size: [46, 5], color: [34, 31, 24], filled: true}
+                      - type: rectangle
+                        position: [8, 41]
+                        size: ["{{ single_bar_width }}", 5]
+                        color: [245, 177, 47]
+                        filled: true
+                      - type: rectangle
+                        position: [9, 41]
+                        size: ["{{ single_highlight_width }}", 1]
+                        color: [255, 237, 166]
+                        filled: true
+                      - type: text
+                        position: [31, 51]
+                        content: "SVJETLINA"
+                        font: Tiny5
+                        color: [255, 205, 76]
+                        align: center
+                      - type: text
+                        position: [31, 57]
+                        content: "BRIGHTNESS"
+                        font: Tiny5
+                        color: [142, 105, 39]
                         align: center
 
           # ----------------------------------------------------
-          # Live brightness burst - both rooms
+          # Svjetlina / Brightness - both synchronized rooms
           # ----------------------------------------------------
           - conditions:
               - condition: template
@@ -323,63 +441,57 @@ script:
                   page_data:
                     page_type: components
                     components:
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
+                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [40, 36, 22], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 20, 24], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [255, 205, 76], filled: true}
                       - type: text
-                        position: [32, 2]
-                        content: "BOTH"
-                        font: GICKO
-                        color: [120, 180, 255]
+                        position: [31, 7]
+                        content: "OBA / BOTH"
+                        font: Tiny5
+                        color: [211, 225, 237]
                         align: center
                       - type: text
-                        position: [2, 17]
-                        content: "D"
-                        font: GICKO
-                        color: [255, 255, 255]
+                        position: [31, 18]
+                        content: "{{ both_pct }}"
+                        font: ELEVEN_PIX
+                        color: [255, 248, 220]
+                        align: center
+                      - type: text
+                        position: [49, 24]
+                        content: "%"
+                        font: Tiny5
+                        color: [255, 205, 76]
+                        align: center
+                      - {type: rectangle, position: [8, 41], size: [50, 9], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [6, 39], size: [50, 9], color: [104, 83, 35], filled: true}
+                      - {type: rectangle, position: [8, 41], size: [46, 5], color: [34, 31, 24], filled: true}
                       - type: rectangle
-                        position: [12, 16]
-                        size: [40, 8]
-                        filled: false
-                        color: [110, 110, 110]
-                      - type: rectangle
-                        position: [14, 18]
-                        size: ["{{ dining_bar_width }}", 4]
+                        position: [8, 41]
+                        size: ["{{ both_bar_width }}", 5]
+                        color: [245, 177, 47]
                         filled: true
-                        color: [255, 220, 90]
-                      - type: text
-                        position: [63, 17]
-                        content: "{{ dining_pct }}%"
-                        font: PICO_8
-                        color: [255, 255, 255]
-                        align: right
-                      - type: text
-                        position: [2, 34]
-                        content: "L"
-                        font: GICKO
-                        color: [255, 255, 255]
                       - type: rectangle
-                        position: [12, 33]
-                        size: [40, 8]
-                        filled: false
-                        color: [110, 110, 110]
-                      - type: rectangle
-                        position: [14, 35]
-                        size: ["{{ living_bar_width }}", 4]
+                        position: [9, 41]
+                        size: ["{{ both_highlight_width }}", 1]
+                        color: [255, 237, 166]
                         filled: true
-                        color: [255, 220, 90]
                       - type: text
-                        position: [63, 34]
-                        content: "{{ living_pct }}%"
-                        font: PICO_8
-                        color: [255, 255, 255]
-                        align: right
+                        position: [31, 51]
+                        content: "SINKRONIZIRANO"
+                        font: Tiny5
+                        color: [120, 231, 181]
+                        align: center
                       - type: text
-                        position: [32, 54]
-                        content: "BRIGHTNESS"
-                        font: PICO_8
-                        color: [255, 220, 90]
+                        position: [31, 57]
+                        content: "SYNCHRONIZED"
+                        font: Tiny5
+                        color: [56, 137, 103]
                         align: center
 
           # ----------------------------------------------------
-          # Scene burst
+          # Scena / Scene
           # ----------------------------------------------------
           - conditions:
               - condition: template
@@ -394,29 +506,40 @@ script:
                   page_data:
                     page_type: components
                     components:
+                      - {type: rectangle, position: [0, 0], size: [64, 64], color: [3, 6, 12], filled: true}
+                      - {type: rectangle, position: [6, 7], size: [55, 52], color: [0, 0, 0], filled: true}
+                      - {type: rectangle, position: [4, 5], size: [55, 52], color: [38, 25, 52], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 52], color: [18, 13, 27], filled: true}
+                      - {type: rectangle, position: [3, 4], size: [55, 2], color: [201, 128, 255], filled: true}
                       - type: text
-                        position: [32, 3]
-                        content: "{{ target_label }}"
-                        font: GICKO
-                        color: [120, 180, 255]
+                        position: [31, 7]
+                        content: "{{ target_short_hr }} / {{ target_en }}"
+                        font: Tiny5
+                        color: [218, 208, 232]
                         align: center
                       - type: text
-                        position: [32, 16]
-                        content: "SCENE"
-                        font: PICO_8
-                        color: [255, 220, 90]
+                        position: [31, 15]
+                        content: "SCENA / SCENE"
+                        font: Tiny5
+                        color: [201, 128, 255]
                         align: center
                       - type: text
-                        position: [32, 31]
+                        position: [31, 28]
                         content: "{{ scene_line_1 }}"
-                        font: PICO_8
-                        color: [255, 255, 255]
+                        font: Tiny5
+                        color: [249, 245, 255]
                         align: center
                       - type: text
-                        position: [32, 42]
+                        position: [31, 40]
                         content: "{{ scene_line_2 }}"
-                        font: PICO_8
-                        color: [255, 255, 255]
+                        font: Tiny5
+                        color: [181, 158, 204]
+                        align: center
+                      - type: text
+                        position: [31, 49]
+                        content: "{{ scene_line_3 }}"
+                        font: Tiny5
+                        color: [116, 92, 139]
                         align: center
 
 # ============================================================
@@ -431,7 +554,7 @@ script:
 
 automation:
   - id: pixoo_feedback_event_bridge
-    alias: Pixoo feedback - Handle feedback request
+    alias: Pixoo feedback - Obradi zahtjev / Handle feedback request
     mode: restart
     triggers:
       - trigger: event
@@ -456,7 +579,7 @@ automation:
 # ============================================================
 
   - id: pixoo_feedback_first_run_defaults
-    alias: Pixoo feedback - First run defaults
+    alias: Pixoo feedback - Početne vrijednosti / First run defaults
     mode: single
     triggers:
       - trigger: homeassistant
