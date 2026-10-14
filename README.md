@@ -107,7 +107,7 @@ The defaults reproduce the original look and pace.
 
 `homeassistant/packages/pixoo_feedback.yaml` adds a small, reusable API for short-lived interaction screens without changing or re-rendering the animated dashboard GIFs.
 
-It uses the existing `divoom_pixoo.show_message` service, so a burst immediately interrupts the current dashboard/weather page, stays visible for its configured duration, and then the integration resumes normal page rotation.
+It uses the existing `divoom_pixoo.show_message` service, so a burst immediately interrupts the current dashboard/weather page. After the configured feedback duration, the package explicitly redraws the normal page that was active before the burst, then the integration continues its regular page rotation. This explicit restore avoids leaving a transient feedback card stuck on screen after rapid rotary events.
 
 The package exposes:
 
@@ -115,9 +115,10 @@ The package exposes:
 - A `pixoo_feedback_request` Home Assistant event bridge so other packages can request bursts without depending on the Pixoo service/entity.
 - `input_boolean.pixoo_feedback_enabled` to disable all temporary feedback without changing callers.
 - Separate duration helpers for target selection, on/off, brightness, and scene screens.
+- `input_number.pixoo_feedback_resume_rotation_seconds` controls how long the restored normal page remains before the integration advances again (default 5 s, matching the repository's normal page duration).
 - A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
 
-The feedback UI is bilingual Croatian/English. Target, ON/OFF, brightness, scene, manual/automatic status, and the built-in Bright/Relax/Dimmed/Savanna Sunset scene names all have Croatian/English presentation where space allows.
+The feedback UI follows the existing `input_select.pixoo_language` helper used by the animated dashboard. Only one language is shown at a time: `english` renders English labels and `hrvatski` renders Croatian labels. Target, ON/OFF, brightness, scene, manual/automatic status, and the built-in Bright/Relax/Dimmed/Savanna Sunset scene names all follow that selection.
 
 The layouts use layered dark panels, offset shadows, edge highlights, and raised progress rails to simulate a modern 3D control card within the Pixoo's 64×64 component renderer. No external image assets are required.
 
