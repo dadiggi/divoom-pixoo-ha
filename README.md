@@ -75,6 +75,7 @@ The script needs only Pillow, which already ships with Home Assistant. One run (
 1. **Copy the files:**
    - `pixoo/pixoo_render.py` → `/config/pixoo/pixoo_render.py`
    - `homeassistant/packages/pixoo_animated.yaml` → `/config/packages/pixoo_animated.yaml`
+   - Optional interaction bursts: `homeassistant/packages/pixoo_feedback.yaml` → `/config/packages/pixoo_feedback.yaml`
 2. **Enable packages** in `configuration.yaml`, if you haven't already:
    ```yaml
    homeassistant:
@@ -100,6 +101,24 @@ The script needs only Pillow, which already ships with Home Assistant. One run (
 | `input_number.pixoo_effects_speed` | **Effects speed**, 0–5 (default 3). |
 
 The defaults reproduce the original look and pace.
+
+
+### Temporary feedback bursts
+
+`homeassistant/packages/pixoo_feedback.yaml` adds a small, reusable API for short-lived interaction screens without changing or re-rendering the animated dashboard GIFs.
+
+It uses the existing `divoom_pixoo.show_message` service, so a burst immediately interrupts the current dashboard/weather page, stays visible for its configured duration, and then the integration resumes normal page rotation.
+
+The package exposes:
+
+- `script.pixoo_feedback` with `target`, `toggle`, `brightness`, and `scene` feedback modes.
+- `input_boolean.pixoo_feedback_enabled` to disable all temporary feedback without changing callers.
+- Separate duration helpers for target selection, on/off, brightness, and scene screens.
+- A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
+
+The brightness layout supports one-room and two-room feedback, including separate Dining/Living percentage bars. Repeated calls replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
+
+The package is intentionally independent of `pixoo_render.py`: a feedback failure cannot block or alter the normal GIF generation pipeline.
 
 ### Saving and restoring your settings
 
