@@ -107,7 +107,7 @@ The defaults reproduce the original look and pace.
 
 `homeassistant/packages/pixoo_feedback.yaml` adds a small, reusable API for short-lived interaction screens without changing or re-rendering the animated dashboard GIFs.
 
-It uses the existing `divoom_pixoo.show_message` service, so a burst immediately interrupts the current dashboard/weather page. After the configured feedback duration, the package explicitly redraws the normal page that was active before the burst, then the integration continues its regular page rotation. This explicit restore avoids leaving a transient feedback card stuck on screen after rapid rotary events.
+It uses the existing `divoom_pixoo.show_message` service, so a burst immediately interrupts the current dashboard/weather page. Every burst also restarts an independent `timer.pixoo_feedback_restore`. When the final timer expires, a separate automation calls `divoom_pixoo.update_page` to redraw the configured page that was active before the burst. Keeping restore outside the restartable feedback script prevents rapid rotary events from cancelling the cleanup step.
 
 The package exposes:
 
@@ -118,9 +118,11 @@ The package exposes:
 - `input_number.pixoo_feedback_resume_rotation_seconds` controls how long the restored normal page remains before the integration advances again (default 5 s, matching the repository's normal page duration).
 - A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
 
-The feedback UI follows the existing `input_select.pixoo_language` helper used by the animated dashboard. Only one language is shown at a time: `english` renders English labels and `hrvatski` renders Croatian labels. Target, ON/OFF, brightness, scene, manual/automatic status, and the built-in Bright/Relax/Dimmed/Savanna Sunset scene names all follow that selection.
+The feedback UI follows the existing `input_select.pixoo_language` helper used by the animated dashboard. Only one language is shown at a time: `english` renders English labels and `hrvatski` renders Croatian labels.
 
-The layouts use layered dark panels, offset shadows, edge highlights, and raised progress rails to simulate a modern 3D control card within the Pixoo's 64×64 component renderer. No external image assets are required.
+Croatian copy is written for the small screen instead of being a literal translation. For example, target selection uses `Odabrana soba` followed by `Blagovaonica`, `Dnevna`, or `Obje`. Status uses short natural labels such as `Uključeno`, `Isključeno`, `Ručno`, `Automatski`, `Svjetlina`, and `Scena`. The known scene names are translated as `Jarko`, `Opušteno`, `Prigušeno`, and `Zalazak savane`.
+
+The layouts combine layered dark cards with embedded transparent pixel-art graphics: a sofa for Living/Dnevna, a dining table for Dining/Blagovaonica, a combined-room icon for Both/Obje, a glowing lamp for ON/OFF, a brightness dial, and stacked scene cards. The icons are stored directly inside the YAML as small base64 PNGs, so no extra files need to be copied to Home Assistant.
 
 Brightness has dedicated one-room and synchronized Both-room layouts. Repeated requests replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
 
