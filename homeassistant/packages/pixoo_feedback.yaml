@@ -138,13 +138,9 @@ script:
       dining_scene:
         name: Dining scene
         required: false
-        selector:
-          text: {}
       living_scene:
         name: Living scene
         required: false
-        selector:
-          text: {}
     variables:
       pixoo_entity: *cfg_pixoo_feedback_entity
       kind_value: "{{ kind | default('target') | lower }}"
