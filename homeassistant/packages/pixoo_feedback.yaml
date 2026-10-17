@@ -9,6 +9,9 @@
 # The show_message service interrupts the normal page rotation. An independent
 # timer/automation redraws the previously active configured page after the burst,
 # then the integration continues its normal page rotation.
+#
+# Brightness requests are coalesced before reaching show_message: the first event
+# is rendered immediately and a rotary burst produces only one final redraw.
 # =============================================================================
 
 # ============================================================
@@ -39,6 +42,9 @@ input_boolean:
   pixoo_feedback_restore_initialized:
     name: Pixoo feedback - Restore defaults applied
     icon: mdi:backup-restore
+  pixoo_feedback_brightness_debounce_initialized:
+    name: Pixoo feedback - Brightness debounce defaults applied
+    icon: mdi:timer-sync-outline
 
 input_number:
   pixoo_feedback_target_duration_seconds:
@@ -67,6 +73,15 @@ input_number:
     step: 1
     mode: box
     unit_of_measurement: s
+
+  pixoo_feedback_brightness_debounce_ms:
+    name: Pixoo feedback - Brightness debounce
+    icon: mdi:timer-sync-outline
+    min: 200
+    max: 1500
+    step: 50
+    mode: box
+    unit_of_measurement: ms
 
   pixoo_feedback_scene_duration_seconds:
     name: Pixoo feedback - Scene duration
@@ -593,6 +608,8 @@ automation:
       - condition: state
         entity_id: input_boolean.pixoo_feedback_enabled
         state: "on"
+      - condition: template
+        value_template: "{{ (trigger.event.data.kind | default('target', true)) != 'brightness' }}"
     actions:
       - action: script.pixoo_feedback
         data:
@@ -604,9 +621,97 @@ automation:
           dining_scene: "{{ trigger.event.data.dining_scene | default('', true) }}"
           living_scene: "{{ trigger.event.data.living_scene | default('', true) }}"
 
+  - id: pixoo_feedback_brightness_bridge
+    alias: Pixoo feedback - Coalesce brightness updates
+    mode: restart
+    triggers:
+      - trigger: event
+        event_type: pixoo_feedback_request
+    conditions:
+      - condition: state
+        entity_id: input_boolean.pixoo_feedback_enabled
+        state: "on"
+      - condition: template
+        value_template: "{{ (trigger.event.data.kind | default('', true)) == 'brightness' }}"
+    actions:
+      - variables:
+          immediate_allowed: "{{ is_state('timer.pixoo_feedback_restore', 'idle') }}"
+          brightness_duration: "{{ states('input_number.pixoo_feedback_brightness_duration_seconds') | int(2) }}"
+          debounce_ms: "{{ states('input_number.pixoo_feedback_brightness_debounce_ms') | int(450) }}"
+
+      # Leading edge: when no temporary feedback page is active, show the first
+      # brightness value immediately so the knob still feels responsive.
+      - if:
+          - condition: template
+            value_template: "{{ immediate_allowed | bool }}"
+        then:
+          - action: script.pixoo_feedback
+            data:
+              kind: brightness
+              target: "{{ trigger.event.data.target | default('living', true) }}"
+              state: "{{ trigger.event.data.state | default('off', true) }}"
+              dining_brightness: "{{ trigger.event.data.dining_brightness | default(0, true) }}"
+              living_brightness: "{{ trigger.event.data.living_brightness | default(0, true) }}"
+              dining_scene: "{{ trigger.event.data.dining_scene | default('', true) }}"
+              living_scene: "{{ trigger.event.data.living_scene | default('', true) }}"
+
+      # Subsequent rotary events do not redraw the Pixoo. They only keep the
+      # existing temporary page alive while the knob is moving.
+      - if:
+          - condition: template
+            value_template: "{{ not (immediate_allowed | bool) }}"
+        then:
+          - action: timer.start
+            target:
+              entity_id: timer.pixoo_feedback_restore
+            data:
+              duration: "{{ brightness_duration }}"
+
+      # Restart mode turns this into a trailing-edge debounce: every new rotary
+      # event cancels this delay and starts it again. Only the final event in a
+      # burst reaches the redraw below.
+      - delay:
+          milliseconds: "{{ debounce_ms }}"
+
+      # A single isolated step already rendered on the leading edge. Bursts get
+      # exactly one extra redraw containing the settled/final brightness.
+      - if:
+          - condition: template
+            value_template: "{{ not (immediate_allowed | bool) }}"
+        then:
+          - action: script.pixoo_feedback
+            data:
+              kind: brightness
+              target: "{{ trigger.event.data.target | default('living', true) }}"
+              state: "{{ trigger.event.data.state | default('off', true) }}"
+              dining_brightness: "{{ trigger.event.data.dining_brightness | default(0, true) }}"
+              living_brightness: "{{ trigger.event.data.living_brightness | default(0, true) }}"
+              dining_scene: "{{ trigger.event.data.dining_scene | default('', true) }}"
+              living_scene: "{{ trigger.event.data.living_scene | default('', true) }}"
+
 # ============================================================
 # FIRST-RUN DEFAULTS
 # ============================================================
+
+  - id: pixoo_feedback_brightness_debounce_initialize_defaults
+    alias: Pixoo feedback - Brightness debounce initialize defaults
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    conditions:
+      - condition: state
+        entity_id: input_boolean.pixoo_feedback_brightness_debounce_initialized
+        state: "off"
+    actions:
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.pixoo_feedback_brightness_debounce_ms
+        data:
+          value: 450
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.pixoo_feedback_brightness_debounce_initialized
 
   - id: pixoo_feedback_restore_initialize_defaults
     alias: Pixoo feedback - Restore initialize defaults
