@@ -120,6 +120,8 @@ The package exposes:
 
 The feedback UI follows the existing `input_select.pixoo_language` helper used by the animated dashboard. Only one language is shown at a time: `english` renders English labels and `hrvatski` renders Croatian labels.
 
+The Moes feedback layer also supports an `ambilight` target. Target selection shows a dedicated TV/Ambilight graphic; toggle feedback shows a colorful active TV when `switch.living_room_tv_ambilight_hue` is ON and a dimmed TV when it is OFF. In Croatian the target remains `Ambilight` / `Ambilight + Hue`; the status uses the normal `Uključeno` / `Isključeno` labels.
+
 Croatian copy is written for the small screen instead of being a literal translation. For example, target selection uses `Odabrana soba` followed by `Blagovaonica`, `Dnevna`, or `Obje`. Status uses short natural labels such as `Uključeno`, `Isključeno`, `Ručno`, `Automatski`, `Svjetlina`, and `Scena`. The known scene names are translated as `Jarko`, `Opušteno`, `Prigušeno`, and `Zalazak savane`.
 
 The layouts combine layered dark cards with embedded transparent pixel-art graphics: a sofa for Living/Dnevna, a dining table for Dining/Blagovaonica, a combined-room icon for Both/Obje, a glowing lamp for ON/OFF, a brightness dial, and stacked scene cards. The icons are stored directly inside the YAML as small base64 PNGs, so no extra files need to be copied to Home Assistant.

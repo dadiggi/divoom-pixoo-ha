@@ -140,6 +140,7 @@ script:
               - living
               - dining
               - both
+              - ambilight
       state:
         name: On/off state
         required: false
@@ -177,7 +178,9 @@ script:
 
       # Natural, short labels sized for the 64px canvas.
       target_label: >-
-        {% if is_hr | bool %}
+        {% if target_value == 'ambilight' %}
+          Ambilight
+        {% elif is_hr | bool %}
           {% if target_value == 'dining' %}Blagovaonica
           {% elif target_value == 'both' %}Obje
           {% else %}Dnevna{% endif %}
@@ -187,12 +190,19 @@ script:
           {% else %}Living{% endif %}
         {% endif %}
       target_context: >-
-        {% if is_hr | bool %}
+        {% if target_value == 'ambilight' %}
+          Ambilight + Hue
+        {% elif is_hr | bool %}
           {% if target_value == 'both' %}Obje sobe{% else %}{{ target_label }}{% endif %}
         {% else %}
           {% if target_value == 'both' %}Both rooms{% else %}{{ target_label }}{% endif %}
         {% endif %}
-      selected_room_label: "{{ 'Odabrana soba' if is_hr | bool else 'Selected room' }}"
+      selected_room_label: >-
+        {% if target_value == 'ambilight' %}
+          {{ 'Odabrano' if is_hr | bool else 'Selected' }}
+        {% else %}
+          {{ 'Odabrana soba' if is_hr | bool else 'Selected room' }}
+        {% endif %}
       state_label: >-
         {% if is_hr | bool %}
           {{ 'Uključeno' if state | default('off') == 'on' else 'Isključeno' }}
@@ -200,7 +210,9 @@ script:
           {{ 'On' if state | default('off') == 'on' else 'Off' }}
         {% endif %}
       mode_label: >-
-        {% if is_hr | bool %}
+        {% if target_value == 'ambilight' %}
+          Philips TV
+        {% elif is_hr | bool %}
           {{ 'Ručno' if state | default('off') == 'on' else 'Automatski' }}
         {% else %}
           {{ 'Manual' if state | default('off') == 'on' else 'Automatic' }}
@@ -286,11 +298,21 @@ script:
       icon_bulb_off: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABCUlEQVR42mNgGAUEACOxCnkExP4j8798eMVIkQX/Y2L+My5Zwggz2MzKDkX+1LFDRFnEiMtwGJt3yy644Vo6OgwMDAwM165cIdoSJqy2LlkC1/DZxw3FcHQ2tuAjaAHM5TCwV4gDQ15LRwcj2Ii2AOYiZEsmP7tDUiIg6AMYcH73A6slsHggKxWhu8bMyg4lmGCWwiIZX9JlIjYfIPsEW5yQFAfoLoG5FJ8luJIqE6lZH9kSWBIm2QeEMg+6JfjUMhJbBikqqaCI3793B8UHyJmTpCD68uEVIzYXfvnwihHZUOTihazSlIGBgaGiqec/AwMDQ0ddCSOusgvdJyRHMr6yC1cwjYJhDgATOXS6CRg1MgAAAABJRU5ErkJggg=="
       icon_brightness: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABmUlEQVR42mNgGEzAZ8f//z47/v8nRQ8TsQolInr+I7OR+fgAI7EG/zk2i8Fi1k0GBgYGhhNp6gwMDAwMLFZpDAwMDAwvVpQwEmUBzPtbPBgZYYb/OTaLoCtZrNIYTBKKGZD1wuXwuRzZ8Aq9dxhqOi4JMcB8xwC1gKggwmV4caY2XKx3+lUUS2A+QQ8uFkLer9B7h2IwDMDFpl9FsYRgKkJ2PUawGEcgMJojYEGFnrqYkNM3tjQOdymaoTA+su8sZt1kMEkoZkA2h4nWmZMFOWmxcgn9F/arItuwE2nqDCxWaQxvN7URn5NhqYXh7ApUCSgfLk9sJL/d1AbPoRip4+wKBMaSH9BdT1Qy7bgkxMAAdSWhfEB0UbEzSJhB2K+KgdicDEtBML2/v71jJOiDt5vaUCzB51JYkBJdVLByCcHTMSxV4StNkcMd2fVExQFMM3LyxWYwyfUBsi9gwH3dWwYWi7tw/lYpMxR5dNcTrHBicmowLPnSkgBn89QsgLOXTGlhpKjKJBcwkqoh4MMduK82CKgwMgw0AACt4r2uRIF9bwAAAABJRU5ErkJggg=="
       icon_scene: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABB0lEQVR42mNgGAVQ8PXX///YxFmQOafqsCvCB8yaGBnxybMgGx4xxZhsl/+8jGBzsyEsZaI0aK62MDB0+q1kYNeFGIxsOEYQMTAwMJzZfZZow01cIT6edqSMoZwhHKsaJmpFcqffSoYYvab/eCMZ2VXkgHW3JjD8fzH9P6NEJiNOC1bkEA4iXInh64NWBgYGBhRLmKiZF7gVqhkYGBgY8PqAnKSKDGLdXuOPA61l2IPoWhR5FjPRughhoZZLCVpg1sTISE5Z5NUnT7wPzJoYGes8VvyfdqSMdkHUtCOCsc5jBck+6TmQRZwFMEti9Jr+r7s1gWIf4C3LsZUthMCSS3WMo9Xv4AIAocVUUgIaDSYAAAAASUVORK5CYII="
+
+      icon_ambilight_on: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAABF0lEQVR4nGNgoDFgxCXxf4dDFEkGeRxYhk2ciVQXkQpobgE8iAIW/M+DsW0Ydk0kxzCvA275MLbWAsZJDAwMDCzoimwYdk1cNncqOeYzMCQzTES2BJsFbjAGf+RGrGY07vqKVbzgLTxNuDEwMOzCZQEK2OfWkYoh6Iap7nBJ7mxcZtA8kvH6wGlXBYrLcAUPPkC0D8gxnCQLyAVEWUCu64m2gBJA0AJKXE+UBZQC9GS6i4GBwZuBgYHh43J/BgYGBoYCAgZoHPJluGG3Gd0MOKBqYVeS4L71WsL/XQwMiMIOV4WzBV2gtmeBNzK/uSRhKw69PsgcXDnZB4vYfyLUYACcVSYMRKVXoBuMApbN7MBrBs1T0dAHAAWbQnzrKkSqAAAAAElFTkSuQmCC"
+      icon_ambilight_off: "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAYAAADgdz34AAAA10lEQVR4nGNgGAUDDRixCfYs2PmfHMNKEtwxzGNB5mjoW/5PKWxgWLNwKjnmM/Qs2Pl/Tn8Dw42Lx+EWseBSfOnMEZIM1zOxwSqO0wIGBgYGZTUtogy/e+saTjkmokygAOD1AT6XEQto7oNRC0aABTiTKa6ciQ68fr9j2MYqhFMepXDS0Lf8z8DAwJBS2ECU4eigJMF9q4a+pTdyWYS1NGVgYNiCLlDbs8Abmd9ckrAVh14fZA6uIPLBIoZehGNTgwFw+QAOotIr8NYNy2Z24DWD5qlo6AMAg2MuteDOemoAAAAASUVORK5CYII="
       target_icon: >-
-        {% if target_value == 'dining' %}{{ icon_dining }}
+        {% if target_value == 'ambilight' %}{{ icon_ambilight_on }}
+        {% elif target_value == 'dining' %}{{ icon_dining }}
         {% elif target_value == 'both' %}{{ icon_both }}
         {% else %}{{ icon_living }}{% endif %}
       bulb_icon: "{{ icon_bulb_on if state | default('off') == 'on' else icon_bulb_off }}"
+      status_icon: >-
+        {% if target_value == 'ambilight' %}
+          {{ icon_ambilight_on if state | default('off') == 'on' else icon_ambilight_off }}
+        {% else %}
+          {{ bulb_icon }}
+        {% endif %}
 
     sequence:
       - condition: state
@@ -365,7 +387,7 @@ script:
                         size: [58, 2]
                         color: "{{ [83, 235, 157] if state | default('off') == 'on' else [110, 124, 139] }}"
                         filled: true
-                      - {type: image, position: [20, 5], image_data: "{{ bulb_icon }}", resample_mode: nearest}
+                      - {type: image, position: [20, 5], image_data: "{{ status_icon }}", resample_mode: nearest}
                       - type: text
                         position: [31, 32]
                         content: "{{ target_context }}"
@@ -390,7 +412,7 @@ script:
           # ----------------------------------------------------
           - conditions:
               - condition: template
-                value_template: "{{ kind_value == 'brightness' and target_value != 'both' }}"
+                value_template: "{{ kind_value == 'brightness' and target_value in ['living', 'dining'] }}"
             sequence:
               - action: divoom_pixoo.show_message
                 target:
@@ -494,7 +516,7 @@ script:
           # ----------------------------------------------------
           - conditions:
               - condition: template
-                value_template: "{{ kind_value == 'scene' }}"
+                value_template: "{{ kind_value == 'scene' and target_value != 'ambilight' }}"
             sequence:
               - action: divoom_pixoo.show_message
                 target:
