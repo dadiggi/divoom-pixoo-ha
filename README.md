@@ -115,6 +115,7 @@ The package exposes:
 - A `pixoo_feedback_request` Home Assistant event bridge so other packages can request bursts without depending on the Pixoo service/entity.
 - `input_boolean.pixoo_feedback_enabled` to disable all temporary feedback without changing callers.
 - Separate duration helpers for target selection, on/off, brightness, and scene screens.
+- `input_number.pixoo_feedback_brightness_debounce_ms` controls how long brightness events are coalesced before the final settled value is sent to Pixoo (default 450 ms).
 - `input_number.pixoo_feedback_resume_rotation_seconds` controls how long the restored normal page remains before the integration advances again (default 5 s, matching the repository's normal page duration).
 - A single installation-specific Pixoo entity mapping at the top of the package. The repository default is `sensor.divoom_pixoo_64_current_page`.
 
@@ -126,7 +127,7 @@ Croatian copy is written for the small screen instead of being a literal transla
 
 The layouts combine layered dark cards with embedded transparent pixel-art graphics: a sofa for Living/Dnevna, a dining table for Dining/Blagovaonica, a combined-room icon for Both/Obje, a glowing lamp for ON/OFF, a brightness dial, and stacked scene cards. The icons are stored directly inside the YAML as small base64 PNGs, so no extra files need to be copied to Home Assistant.
 
-Brightness has dedicated one-room and synchronized Both-room layouts. Repeated requests replace the temporary screen and restart its expiry, which makes the same script suitable for rotary controls that update several times while the knob is moving.
+Brightness has dedicated one-room and synchronized Both-room layouts. Rotary brightness events are deliberately rate-limited before they reach the physical Pixoo: the first event in a burst is displayed immediately, intermediate events only keep the temporary page alive, and one final update is sent after the knob has been quiet for the configured debounce interval. The lights still react to every Moes event; only display traffic is coalesced. This limits a long rotary burst to at most two Pixoo redraws instead of one redraw per Zigbee event.
 
 External packages should normally fire `pixoo_feedback_request` rather than call `script.pixoo_feedback` directly. The event bridge owns the enable check and forwards the event data into the renderer.
 
